@@ -1,13 +1,18 @@
 #[macro_use] extern crate serde_derive;
 
 mod address_space;
+mod cpu;
+mod io;
 mod rom;
 mod system_state;
 
 use std::env;
+use std::cell::RefCell;
 use std::process::exit;
+use std::rc::Rc;
 use regex::Regex;
 use address_space::AddressSpace;
+use cpu::CPU;
 use system_state::SystemState;
 
 
@@ -30,9 +35,13 @@ fn main() {
         },
     };
 
-    let mut state = SystemState::new();
-    let mut addr_space = AddressSpace::new(&rom_path, &ram_path);
+    let addr_space = AddressSpace::new(&rom_path, &ram_path);
+    let mut state = SystemState::new(addr_space);
 
-    rom::load_rom(&mut addr_space, &mut state);
-    addr_space.map();
+    rom::load_rom(&mut state);
+
+    let common_state = Rc::new(RefCell::new(state));
+
+    let mut cpu = CPU::new(Rc::clone(&common_state));
+    cpu.run();
 }

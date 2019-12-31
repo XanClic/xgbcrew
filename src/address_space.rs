@@ -1,22 +1,30 @@
 use std::fs;
 use std::os::unix::io::{AsRawFd, RawFd};
 
+use crate::rom::Cartridge;
 
-const AS_BASE: usize = 0x100000000usize;
+
+pub const AS_BASE: usize = 0x100000000usize;
 
 pub struct AddressSpace {
     pub rom_file: fs::File,
     pub extram_file: fs::File,
 
+    pub cartridge: Cartridge,
+
     pub rom_bank: usize,
     pub vram_bank: usize,
     pub extram_bank: Option<usize>,
+    pub extram_rw: bool,
     pub wram_bank: usize,
+
+    pub full_vram: *mut u8,
 
     rom0_mapped: Option<()>,
     romn_mapped: Option<usize>,
     vram_mapped: Option<usize>,
     extram_mapped: Option<usize>,
+    extram_mapped_rw: bool,
     wram0_mapped: Option<()>,
     wramn_mapped: Option<usize>,
     hram_mapped: Option<()>,
@@ -35,6 +43,39 @@ extern "C" fn close_shm() {
 }
 
 
+pub trait U8Split {
+    fn split_into_u8<F: FnMut(u16, u8)>(self, base_addr: u16, func: F);
+    fn construct_from_u8<F: FnMut(u16) -> u8>(base_addr: u16, func: F)
+        -> Self;
+}
+
+impl U8Split for u8 {
+    fn split_into_u8<F: FnMut(u16, u8)>(self, base_addr: u16, mut func: F) {
+        func(base_addr, self);
+    }
+
+    fn construct_from_u8<F: FnMut(u16) -> u8>(base_addr: u16, mut func: F)
+        -> Self
+    {
+        func(base_addr)
+    }
+}
+
+impl U8Split for u16 {
+    fn split_into_u8<F: FnMut(u16, u8)>(self, base_addr: u16, mut func: F) {
+        func(base_addr, self as u8);
+        func(base_addr.wrapping_add(1u16), (self >> 8) as u8);
+    }
+
+    fn construct_from_u8<F: FnMut(u16) -> u8>(base_addr: u16, mut func: F)
+        -> Self
+    {
+        (func(base_addr) as u16) |
+            ((func(base_addr.wrapping_add(1u16)) as u16) << 8)
+    }
+}
+
+
 impl AddressSpace {
     pub fn new(rom_path: &String, ram_path: &String) -> Self {
         Self {
@@ -48,15 +89,21 @@ impl AddressSpace {
                             .create(true)
                             .open(ram_path).unwrap(),
 
+            cartridge: Cartridge::new(),
+
             rom_bank: 1,
             vram_bank: 0,
             extram_bank: None,
+            extram_rw: false,
             wram_bank: 1,
+
+            full_vram: std::ptr::null_mut(),
 
             rom0_mapped: None,
             romn_mapped: None,
             vram_mapped: None,
             extram_mapped: None,
+            extram_mapped_rw: false,
             wram0_mapped: None,
             wramn_mapped: None,
             hram_mapped: None,
@@ -69,6 +116,7 @@ impl AddressSpace {
 
     fn mmap(&mut self, addr: usize, fd: libc::c_int, offset: usize, size: usize,
             prot: libc::c_int, flags: libc::c_int)
+        -> *mut libc::c_void
     {
         let res = unsafe {
             libc::mmap(addr as *mut libc::c_void, size, prot, flags, fd,
@@ -78,6 +126,8 @@ impl AddressSpace {
         if res == libc::MAP_FAILED {
             panic!("mmap() failed");
         }
+
+        res
     }
 
     fn munmap(&mut self, addr: usize, size: usize) {
@@ -100,7 +150,7 @@ impl AddressSpace {
         self.rom0_mapped = Some(());
     }
 
-    fn remap_romn(&mut self) {
+    pub fn remap_romn(&mut self) {
         if let Some(bank) = self.romn_mapped {
             if bank == self.rom_bank {
                 return;
@@ -114,7 +164,7 @@ impl AddressSpace {
         self.romn_mapped = Some(self.rom_bank);
     }
 
-    fn map_vram(&mut self) {
+    pub fn remap_vram(&mut self) {
         if let Some(bank) = self.vram_mapped {
             if bank == self.vram_bank {
                 return;
@@ -125,25 +175,38 @@ impl AddressSpace {
         self.mmap(AS_BASE + 0x8000, self.vram_shm.unwrap(),
                   self.vram_bank * 0x2000usize, 0x2000,
                   libc::PROT_READ | libc::PROT_WRITE,
-                  libc::MAP_PRIVATE | libc::MAP_FIXED |
-                  libc::MAP_ANONYMOUS);
+                  libc::MAP_SHARED | libc::MAP_FIXED);
         self.vram_mapped = Some(self.vram_bank);
     }
 
-    fn remap_extram(&mut self) {
-        if self.extram_mapped == self.extram_bank {
+    pub fn remap_extram(&mut self) {
+        if self.extram_mapped == self.extram_bank &&
+           self.extram_mapped_rw == self.extram_rw
+        {
             return;
         }
         if self.extram_mapped.is_some() {
             self.munmap(AS_BASE + 0xa000, 0x2000);
         }
         if let Some(bank) = self.extram_bank {
-            self.mmap(AS_BASE + 0xa000, self.extram_file.as_raw_fd(),
-                      bank * 0x2000usize, 0x2000,
-                      libc::PROT_READ | libc::PROT_WRITE,
-                      libc::MAP_SHARED | libc::MAP_FIXED);
+            let prot = if self.extram_rw {
+                libc::PROT_READ | libc::PROT_WRITE
+            } else {
+                libc::PROT_READ
+            };
+
+            if bank == -1isize as usize {
+                self.mmap(AS_BASE + 0xa000, -1, 0, 0x2000,
+                          prot, libc::MAP_PRIVATE | libc::MAP_FIXED |
+                          libc::MAP_ANONYMOUS);
+            } else {
+                self.mmap(AS_BASE + 0xa000, self.extram_file.as_raw_fd(),
+                          bank * 0x2000usize, 0x2000,
+                          prot, libc::MAP_SHARED | libc::MAP_FIXED);
+            }
         }
         self.extram_mapped = self.extram_bank;
+        self.extram_mapped_rw = self.extram_rw;
     }
 
     fn register_shm_unlink_handler() {
@@ -184,6 +247,11 @@ impl AddressSpace {
     fn ensure_vram_shm(&mut self) {
         if self.vram_shm.is_none() {
             self.vram_shm = Some(Self::create_shm("/xcgbcrew-vram\0", 0x4000));
+
+            self.full_vram = self.mmap(0, self.vram_shm.unwrap(), 0, 0x4000,
+                                       libc::PROT_READ | libc::PROT_WRITE,
+                                       libc::MAP_SHARED)
+                             as *mut u8;
         }
     }
 
@@ -207,7 +275,7 @@ impl AddressSpace {
         self.wram0_mapped = Some(());
     }
 
-    fn remap_wramn(&mut self) {
+    pub fn remap_wramn(&mut self) {
         if let Some(bank) = self.wramn_mapped {
             if bank == self.wram_bank {
                 return;
@@ -258,7 +326,7 @@ impl AddressSpace {
         self.remap_romn();
 
         self.ensure_vram_shm();
-        self.map_vram();
+        self.remap_vram();
 
         self.remap_extram();
 
@@ -268,5 +336,35 @@ impl AddressSpace {
 
         self.ensure_hram_shm();
         self.map_hram();
+    }
+
+    pub fn rom_write(&mut self, addr: u16, val: u8) {
+        Cartridge::cart_write(self, addr, val);
+    }
+
+    pub fn extram_write(&mut self, addr: u16, val: u8) {
+        Cartridge::cart_write(self, addr, val);
+    }
+}
+
+
+/* Of course, this will only cover the current area */
+pub fn get_raw_read_addr(ptr: u16) -> usize {
+    let mem_addr = AS_BASE + (ptr as usize);
+
+    if ptr < 0xe000u16 {
+        mem_addr
+    } else if ptr < 0xfe00u16 {
+        mem_addr - 0x2000
+    } else if ptr < 0xfea0u16 {
+        mem_addr + 0x1000
+    } else if ptr < 0xff00u16 {
+        mem_addr - 0x2000
+    } else if ptr < 0xff80u16 {
+        panic!("get_raw_read_addr() does not work for MMIO")
+    } else if ptr < 0xffffu16 {
+        mem_addr + 0x1000
+    } else {
+        panic!("get_raw_read_addr() does not work for MMIO")
     }
 }
