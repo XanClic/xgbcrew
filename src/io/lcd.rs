@@ -4,18 +4,11 @@ use crate::system_state::{IOReg, SystemState};
 
 
 pub struct DisplayState {
-    sdl: sdl2::Sdl,
-    evt_pump: Option<sdl2::EventPump>,
-    cvs: Option<sdl2::render::Canvas<sdl2::video::Window>>,
+    evt_pump: sdl2::EventPump,
+    cvs: sdl2::render::Canvas<sdl2::video::Window>,
 
-    /*
-     * This is unsafe.  AFAIU, the safe way to access the window's
-     * surface would be to get the surface every time anything needs
-     * to be drawn.  I don't want to do that, so, well, it stays
-     * unsafe.
-     */
-    pixels: Option<*mut u8>,
-    stride: isize,
+    lcd_txt: sdl2::render::Texture<'static>,
+    lcd_pixels: [u32; 160 * 144],
 
     enabled: bool,
     wnd_tile_map: isize,
@@ -39,12 +32,30 @@ pub struct DisplayState {
 
 impl DisplayState {
     pub fn new() -> Self {
-        let mut me = Self {
-            sdl: sdl2::init().unwrap(),
-            evt_pump: None,
-            cvs: None,
-            pixels: None,
-            stride: 0,
+        let sdl = sdl2::init().unwrap();
+        let vid = sdl.video().unwrap();
+        let evt_pump = sdl.event_pump().unwrap();
+
+        let wnd = vid.window("xgbcrew", 160, 144).opengl().resizable().build()
+                     .unwrap();
+        let cvs = wnd.into_canvas().accelerated().build().unwrap();
+
+        let pixel_fmt = sdl2::pixels::PixelFormatEnum::ARGB8888;
+        let access = sdl2::render::TextureAccess::Streaming;
+        let txtc = cvs.texture_creator();
+        let lcd_txt = unsafe {
+            /* F this */
+            std::mem::transmute::<sdl2::render::Texture,
+                                  sdl2::render::Texture<'static>>(
+                txtc.create_texture(pixel_fmt, access, 160, 144).unwrap()
+            )
+        };
+
+        Self {
+            evt_pump: evt_pump,
+            cvs: cvs,
+            lcd_txt: lcd_txt,
+            lcd_pixels: [0; 160 * 144],
 
             enabled: false,
             wnd_tile_map: 0,
@@ -63,20 +74,7 @@ impl DisplayState {
             bg_palette15: [0x7fff; 32],
             obj_palette: [0x00; 32],
             obj_palette15: [0x0000; 32],
-        };
-
-        let vid = me.sdl.video().unwrap();
-
-        me.evt_pump = Some(me.sdl.event_pump().unwrap());
-        let wnd = vid.window("xgbcrew", 160, 144).build().unwrap();
-
-        let mut sfc = wnd.surface(me.evt_pump.as_ref().unwrap()).unwrap();
-        me.stride = sfc.pitch() as isize;
-        me.pixels = Some(sfc.without_lock_mut().unwrap().as_mut_ptr());
-
-        me.cvs = Some(wnd.into_canvas().software().build().unwrap());
-
-        me
+        }
     }
 
     pub fn init_system_state(sys_state: &mut SystemState) {
@@ -88,15 +86,24 @@ impl DisplayState {
     }
 
     fn update(&mut self) {
-        self.cvs.as_mut().unwrap().present();
+        let pixels8 = unsafe {
+            std::mem::transmute::<&[u32], &[u8]>(&self.lcd_pixels)
+        };
+
+        self.lcd_txt.update(None, pixels8, 160 * 4).unwrap();
+        self.cvs.copy(&self.lcd_txt, None, None).unwrap();
+        self.cvs.present();
     }
 }
 
 
-fn draw_bg_line(sys_state: &SystemState, pixels: *mut u32,
-                line: u8, bit7val: u8, window: bool)
+fn draw_bg_line(sys_state: &mut SystemState,
+                line: u8, display_line: u8, bit7val: u8, window: bool)
 {
-    let d = &sys_state.display;
+    let d = &mut sys_state.display;
+    let sofs = display_line as usize * 160;
+    let eofs = sofs + 160;
+    let pixels = &mut d.lcd_pixels[sofs..eofs];
 
     let bg_tile_map = unsafe {
         (sys_state.addr_space.full_vram.offset(d.bg_tile_map),
@@ -173,7 +180,7 @@ fn draw_bg_line(sys_state: &SystemState, pixels: *mut u32,
             };
 
         for rx in rsx..8 {
-            let screen_x = (bx + rx).wrapping_sub(sx) as isize;
+            let screen_x = (bx + rx).wrapping_sub(sx) as usize;
 
             if screen_x >= 160 {
                 break;
@@ -189,9 +196,7 @@ fn draw_bg_line(sys_state: &SystemState, pixels: *mut u32,
             let val = ((data.0 & mask != 0) as usize) |
                       (((data.1 & mask != 0) as usize) << 1);
 
-            unsafe {
-                *pixels.offset(screen_x) = d.bg_palette[pal_bi + val];
-            }
+            pixels[screen_x] = d.bg_palette[pal_bi + val];
         }
 
         let (nbx, wrap) = bx.overflowing_add(8);
@@ -206,41 +211,37 @@ fn draw_bg_line(sys_state: &SystemState, pixels: *mut u32,
 }
 
 
-fn draw_line(sys_state: &SystemState, line: u8) {
-    let d = &sys_state.display;
+fn draw_line(sys_state: &mut SystemState, line: u8) {
+    let sofs = line as usize * 160;
+    let eofs = sofs + 160;
+    let pixels = &mut sys_state.display.lcd_pixels[sofs..eofs];
 
-    let pixels = unsafe {
-        d.pixels.unwrap().offset(line as isize * d.stride) as *mut u32
-    };
-
-    if !d.enabled {
-        unsafe {
-            libc::memset(pixels as *mut libc::c_void,
-                         0xff, d.stride as usize);
+    if !sys_state.display.enabled {
+        for p in pixels {
+            *p = 0xffffff;
         }
         return;
     }
 
     let sy = sys_state.io_regs[IOReg::SCY as usize];
     let abs_line = line.wrapping_add(sy);
-    let window_active = d.wnd_enabled &&
+    let window_active = sys_state.display.wnd_enabled &&
                         sys_state.io_regs[IOReg::WX as usize] >= 7 &&
                         sys_state.io_regs[IOReg::WX as usize] <= 166 &&
                         sys_state.io_regs[IOReg::WY as usize] <= line;
 
-    if !d.tiles_enabled {
-        unsafe {
-            libc::memset(pixels as *mut libc::c_void,
-                         0x00, d.stride as usize);
+    if !sys_state.display.tiles_enabled {
+        for p in pixels {
+            *p = 0x000000;
         }
     } else {
-        draw_bg_line(sys_state, pixels, abs_line, 0 << 7, window_active);
+        draw_bg_line(sys_state, abs_line, line, 0 << 7, window_active);
     }
 
     /* TODO: Window + OBJ */
 
-    if d.tiles_enabled && sys_state.cgb {
-        draw_bg_line(sys_state, pixels, abs_line, 1 << 7, window_active);
+    if sys_state.display.tiles_enabled && sys_state.cgb {
+        draw_bg_line(sys_state, abs_line, line, 1 << 7, window_active);
     }
 }
 
@@ -281,11 +282,10 @@ fn stat_mode_transition(sys_state: &mut SystemState, ly: u8, from: u8, to: u8) {
 
             if from != 1 {
                 /* Entered VBlank */
+
                 sys_state.display.update();
 
-                while let Some(evt) = sys_state.display.evt_pump
-                                        .as_mut().unwrap().poll_event()
-                {
+                while let Some(evt) = sys_state.display.evt_pump.poll_event() {
                     match evt {
                         sdl2::event::Event::Quit { timestamp: _ } => {
                             std::process::exit(0);
