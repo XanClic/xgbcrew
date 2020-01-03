@@ -1,3 +1,4 @@
+use crate::address_space::get_raw_read_addr;
 use crate::io::{hdma_copy_16b, io_write};
 use crate::io::int::IRQ;
 use crate::system_state::{IOReg, SystemState};
@@ -98,7 +99,8 @@ impl DisplayState {
 
 
 fn draw_bg_line(sys_state: &mut SystemState,
-                line: u8, screen_line: u8, bit7val: u8, window: bool)
+                line: u8, screen_line: u8, bit7val: u8, window: bool,
+                mut bg_zero: Option<&mut [bool; 160]>)
 {
     let d = &mut sys_state.display;
     let sofs = screen_line as usize * 160;
@@ -192,9 +194,12 @@ fn draw_bg_line(sys_state: &mut SystemState,
                 };
 
             let val = ((data.0 & mask != 0) as usize) |
-                      (((data.1 & mask != 0) as usize) << 1);
+                      (((data.1 & mask != 0) as usize) * 2);
 
             pixels[screen_x] = d.bg_palette[pal_bi + val];
+            if bg_zero.is_some() {
+                bg_zero.as_mut().unwrap()[screen_x] = val == 0;
+            }
         }
 
         let (nbx, wrap) = bx.overflowing_add(8);
@@ -208,10 +213,101 @@ fn draw_bg_line(sys_state: &mut SystemState,
 }
 
 
+fn draw_obj_line(sys_state: &mut SystemState, screen_line: u8,
+                 bg_zero: &[bool; 160])
+{
+    let d = &mut sys_state.display;
+    let sofs = screen_line as usize * 160;
+    let eofs = sofs + 160;
+    let pixels = &mut d.lcd_pixels[sofs..eofs];
+    let oam = get_raw_read_addr(0xfe00) as *const u8;
+
+    let mut count = 0;
+
+    for sprite in (0..40).rev() {
+        let oam_bi = sprite * 4;
+        let by = unsafe { *oam.offset(oam_bi + 0) } as isize - 16;
+        let bx = unsafe { *oam.offset(oam_bi + 1) } as isize - 8;
+
+        if by > screen_line as isize ||
+           by + d.obj_height as isize <= screen_line as isize
+        {
+            continue;
+        }
+
+        count += 1;
+        if count > 10 {
+            break;
+        }
+
+        if bx <= -8 || bx >= 160 {
+            continue;
+        }
+
+        let mut ofs = unsafe { *oam.offset(oam_bi + 2) } as isize * 16;
+        let flags = unsafe { *oam.offset(oam_bi + 3) };
+        let ry =
+            if flags & (1 << 6) == 0 {
+                screen_line as isize - by
+            } else {
+                d.obj_height as isize - 1 - (screen_line as isize - by)
+            };
+
+        if d.obj_height == 16 {
+            ofs &= !0x1f;
+        }
+
+        let (data_ofs, pal_bi) =
+            if sys_state.cgb {
+                (if flags & (1 << 3) != 0 { 0x2000 } else { 0 },
+                 ((flags & 7) as usize) * 4)
+            } else {
+                (0,
+                 ((flags >> 4) & 1) as usize)
+            };
+
+        let data_ptr =
+            unsafe {
+                sys_state.addr_space.full_vram.offset(data_ofs + ofs)
+            };
+
+        let data =
+            unsafe {
+                (*data_ptr.offset(ry * 2),
+                 *data_ptr.offset(ry * 2 + 1))
+            };
+
+        for rx in 0..8 {
+            let screen_x = (bx + rx) as usize;
+            if screen_x >= 160 {
+                continue;
+            }
+
+            let mask =
+                if flags & (1 << 5) == 0 {
+                    1 << (7 - rx)
+                } else {
+                    1 << rx
+                };
+
+            let val = ((data.0 & mask != 0) as usize) |
+                      (((data.1 & mask != 0) as usize) << 1);
+
+            if val != 0 {
+                if flags & (1 << 7) == 0 || bg_zero[screen_x] {
+                    pixels[screen_x] = d.obj_palette[pal_bi + val];
+                }
+            }
+        }
+    }
+}
+
+
 fn draw_line(sys_state: &mut SystemState, line: u8) {
     let sofs = line as usize * 160;
     let eofs = sofs + 160;
     let pixels = &mut sys_state.display.lcd_pixels[sofs..eofs];
+    let mut bg_zero = [false; 160];
 
     if !sys_state.display.enabled {
         for p in pixels {
@@ -232,13 +328,18 @@ fn draw_line(sys_state: &mut SystemState, line: u8) {
             *p = 0x000000;
         }
     } else {
-        draw_bg_line(sys_state, abs_line, line, 0 << 7, window_active);
+        draw_bg_line(sys_state, abs_line, line, 0 << 7, window_active,
+                     Some(&mut bg_zero));
     }
 
-    /* TODO: Window + OBJ */
+    /* TODO: Window */
+
+    if sys_state.display.obj_enabled {
+        draw_obj_line(sys_state, line, &bg_zero);
+    }
 
     if sys_state.display.tiles_enabled && sys_state.cgb {
-        draw_bg_line(sys_state, abs_line, line, 1 << 7, window_active);
+        draw_bg_line(sys_state, abs_line, line, 1 << 7, window_active, None);
     }
 }
 
