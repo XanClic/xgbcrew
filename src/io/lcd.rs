@@ -412,6 +412,22 @@ pub fn lcd_write(sys_state: &mut SystemState, addr: u16, mut val: u8) {
 
         0x42 | 0x43 | 0x4a | 0x4b => (),
 
+        0x44 => {
+            val = 0;
+        },
+
+        0x45 => {
+            if val == sys_state.io_regs[IOReg::LY as usize] {
+                let mut stat = sys_state.io_regs[IOReg::STAT as usize];
+                stat |= 1 << 2;
+                sys_state.io_regs[IOReg::STAT as usize] = stat;
+
+                if stat & 0b01000100 == 0b01000100 {
+                    sys_state.io_regs[IOReg::IF as usize] |= IRQ::LCDC as u8;
+                }
+            }
+        },
+
         0x47 => {
             if !sys_state.cgb {
                 let d = &mut sys_state.display;
