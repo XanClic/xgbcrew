@@ -116,7 +116,7 @@ fn prefix0xcb(cpu: &mut CPU) {
                 acc_op_r8![acc_op_r8![cpu.r] | mask => cpu.r];
             },
 
-            _ => panic!("unreachable"),
+            _ => unreachable!(),
         };
     }
 
@@ -282,7 +282,7 @@ macro_rules! adc_a_r8 {
                     zf: res8 == 0,
                     nf: false,
                     hf: (a ^ r8 ^ res8) & 0x10 != 0,
-                    cf: res & 0x100 != 0
+                    cf: res > 0xff
                 };
             }
         }
@@ -316,8 +316,8 @@ macro_rules! sbc_a_r8 {
             fn [<sbc_a_ $r>](cpu: &mut CPU) {
                 let a = regs![cpu.a];
                 let r8 = quasi_r8s!(cpu, $r);
-                let (res, cf) = (a as u32).overflowing_sub((r8 as u32) +
-                                    (flags![cpu.cf] as u32));
+                let res = (a as u32).wrapping_sub((r8 as u32) +
+                                                  (flags![cpu.cf] as u32));
                 let res8 = res as u8;
 
                 regs![res8 => cpu.a];
@@ -326,7 +326,7 @@ macro_rules! sbc_a_r8 {
                     zf: res8 == 0,
                     nf: true,
                     hf: (a ^ r8 ^ res8) & 0x10 != 0,
-                    cf: cf
+                    cf: res > 0xff
                 };
             }
         }
@@ -421,8 +421,8 @@ macro_rules! rotate8_zf {
 }
 
 macro_rules! shift8_cf {
-    ($res:expr, l) => ($res & 0x80u8 != 0);
-    ($res:expr, r) => ($res & 0x01u8 != 0);
+    ($src:expr, l) => ($src & 0x80u8 != 0);
+    ($src:expr, r) => ($src & 0x01u8 != 0);
 }
 
 macro_rules! rotate8 {
@@ -436,7 +436,7 @@ macro_rules! rotate8 {
                 zf: rotate8_zf!(res, $shorthand),
                 nf: false,
                 hf: false,
-                cf: shift8_cf!(res, $dir)
+                cf: shift8_cf!(src, $dir)
             };
         }
     };
@@ -474,7 +474,7 @@ macro_rules! shift8 {
                     zf: res == 0,
                     nf: false,
                     hf: false,
-                    cf: shift8_cf!(res, $dir)
+                    cf: shift8_cf!(src, $dir)
                 };
             }
         }
@@ -844,7 +844,7 @@ fn ld_sp_hl(cpu: &mut CPU) {
 rotate8!(rlca, a, l, to_carry, short);
 rotate8!(rrca, a, r, to_carry, short);
 rotate8!(rla, a, l, with_carry, short);
-rotate8!(rra, a, r, to_carry, short);
+rotate8!(rra, a, r, with_carry, short);
 
 prefixed_rot8!(l, to_carry, a);
 prefixed_rot8!(l, to_carry, b);
