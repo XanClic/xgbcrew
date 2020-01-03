@@ -98,10 +98,10 @@ impl DisplayState {
 
 
 fn draw_bg_line(sys_state: &mut SystemState,
-                line: u8, display_line: u8, bit7val: u8, window: bool)
+                line: u8, screen_line: u8, bit7val: u8, window: bool)
 {
     let d = &mut sys_state.display;
-    let sofs = display_line as usize * 160;
+    let sofs = screen_line as usize * 160;
     let eofs = sofs + 160;
     let pixels = &mut d.lcd_pixels[sofs..eofs];
 
@@ -118,11 +118,10 @@ fn draw_bg_line(sys_state: &mut SystemState,
 
     let sx = sys_state.io_regs[IOReg::SCX as usize];
     let mut bx = sx & 0xf8;
-    let mut rsx = sx - bx;
     let ex = sx.wrapping_add(167) & 0xf8;
-    let by = line & 0xf8;
-    let ry = line & 0x07;
-    let mut tile = ((by as isize) << 2) + ((bx as isize) >> 3);
+    let by = (line & 0xf8) as isize;
+    let ry = (line & 0x07) as isize;
+    let mut tile = (by << 2) + ((bx as isize) >> 3);
 
     while bx != ex {
         if window && sys_state.io_regs[IOReg::WX as usize] <= bx {
@@ -146,7 +145,6 @@ fn draw_bg_line(sys_state: &mut SystemState,
             } else {
                 tile += 1;
             }
-            rsx = 0;
             continue;
         }
 
@@ -171,15 +169,15 @@ fn draw_bg_line(sys_state: &mut SystemState,
         let data =
             unsafe {
                 if flags & (1 << 6) == 0 {
-                    (*data_ptr.offset(ry as isize * 2),
-                     *data_ptr.offset(ry as isize * 2 + 1))
+                    (*data_ptr.offset(ry * 2),
+                     *data_ptr.offset(ry * 2 + 1))
                 } else {
-                    (*data_ptr.offset((7 - ry as isize) * 2),
-                     *data_ptr.offset((7 - ry as isize) * 2 + 1))
+                    (*data_ptr.offset((7 - ry) * 2),
+                     *data_ptr.offset((7 - ry) * 2 + 1))
                 }
             };
 
-        for rx in rsx..8 {
+        for rx in 0..8 {
             let screen_x = (bx + rx).wrapping_sub(sx) as usize;
 
             if screen_x >= 160 {
@@ -206,7 +204,6 @@ fn draw_bg_line(sys_state: &mut SystemState,
         } else {
             tile += 1;
         }
-        rsx = 0;
     }
 }
 
@@ -406,7 +403,7 @@ pub fn lcd_write(sys_state: &mut SystemState, addr: u16, mut val: u8) {
             d.tile_data     = if val & (1 << 4) != 0 { 0x0000 } else { 0x1000 };
             d.bg_tile_map   = if val & (1 << 3) != 0 { 0x1c00 } else { 0x1800 };
 
-            d.obj_height    = if val & (1 << 2) != 0 { 8 } else { 16 };
+            d.obj_height    = if val & (1 << 2) != 0 { 16 } else { 8 };
         },
 
         0x41 => {
