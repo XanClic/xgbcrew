@@ -217,7 +217,7 @@ fn draw_bg_line(sys_state: &mut SystemState,
         for rx in 0..8 {
             let screen_x = (bx + rx).wrapping_sub(sx) as usize;
             if screen_x >= 160 {
-                break;
+                continue;
             }
 
             let val = get_tile_obj_pixel(data, rx, flags);
