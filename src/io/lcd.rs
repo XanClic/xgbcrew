@@ -302,6 +302,7 @@ fn draw_obj_line(sys_state: &mut SystemState, screen_line: u8,
 
     let mut count = 0;
 
+    /* TODO: Priority should be given to objects at lower X */
     for sprite in (0..40).rev() {
         let oam_bi = sprite * 4;
         let by = unsafe { *oam.offset(oam_bi + 0) } as isize - 16;
@@ -558,11 +559,14 @@ pub fn lcd_write(sys_state: &mut SystemState, addr: u16, mut val: u8) {
             d.obj_enabled   = val & (1 << 1) != 0;
 
             if sys_state.cgb {
+                /* XXX: One doc says this, but the official doc mentions
+                 * nothing of this sort */
+                /* d.obj_prio   = val & (1 << 0) != 0; */
+                d.obj_prio   = false;
+                d.bg_enabled = true;
+            } else {
                 d.bg_enabled = val & (1 << 0) != 0;
                 d.obj_prio   = false;
-            } else {
-                d.obj_prio   = val & (1 << 0) != 0;
-                d.bg_enabled = true;
             }
 
             d.wnd_tile_map  = if val & (1 << 6) != 0 { 0x1c00 } else { 0x1800 };
