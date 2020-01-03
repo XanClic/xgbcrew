@@ -16,9 +16,10 @@ pub struct DisplayState {
     wnd_enabled: bool,
     tile_data: isize,
     bg_tile_map: isize,
-    obj_height: usize,
+    obj_height: isize,
     obj_enabled: bool,
-    tiles_enabled: bool,
+    bg_enabled: bool,
+    obj_prio: bool,
 
     line_timer: u32,
 
@@ -65,7 +66,8 @@ impl DisplayState {
             bg_tile_map: 0,
             obj_height: 0,
             obj_enabled: false,
-            tiles_enabled: false,
+            bg_enabled: false,
+            obj_prio: false,
 
             line_timer: 0,
 
@@ -98,9 +100,84 @@ impl DisplayState {
 }
 
 
+fn fetch_tile_flags(map: (*const u8, *const u8), tile: isize, cgb: bool) -> u8 {
+    if cgb {
+        unsafe {
+            *map.1.offset(tile)
+        }
+    } else {
+        0
+    }
+}
+
+fn fetch_tile_obj_data(data_ptr: *const u8, flags: u8, ry: isize, height: isize)
+    -> (u8, u8)
+{
+    unsafe {
+        if flags & (1 << 6) == 0 {
+            (*data_ptr.offset(ry * 2 + 0),
+             *data_ptr.offset(ry * 2 + 1))
+        } else {
+            (*data_ptr.offset((height - 1 - ry) * 2 + 0),
+             *data_ptr.offset((height - 1 - ry) * 2 + 1))
+        }
+    }
+}
+
+fn get_tile_data_and_pal(map: (*const u8, *const u8), tile_data: *const u8,
+                         tile_data_signed: bool, flags: u8, tile: isize,
+                         ry: isize, height: isize, cgb: bool)
+    -> ((u8, u8), usize)
+{
+    let (data_ofs, pal_bi) =
+        if cgb {
+            (if flags & (1 << 3) != 0 { 0x2000 } else { 0 },
+             ((flags & 7) as usize) * 4)
+        } else {
+            (0, 0)
+        };
+
+    let data_ptr =
+        unsafe {
+            let mapping = *map.0.offset(tile);
+            if tile_data_signed {
+                tile_data.offset(mapping as i8 as isize * 16 + data_ofs)
+            } else {
+                tile_data.offset(mapping as isize * 16 + data_ofs)
+            }
+        };
+
+    (fetch_tile_obj_data(data_ptr, flags, ry, height), pal_bi)
+}
+
+fn get_tile_obj_pixel(data: (u8, u8), rx: u8, flags: u8) -> usize {
+    let mask =
+        if flags & (1 << 5) == 0 {
+            1 << (7 - rx)
+        } else {
+            1 << rx
+        };
+
+    ((data.0 & mask != 0) as usize) |
+    (((data.1 & mask != 0) as usize) << 1)
+}
+
+fn get_tile_prio(pixel: usize, flags: u8, obj_prio: bool) -> u8 {
+    if obj_prio {
+        0
+    } else if flags & (1 << 7) != 0 {
+        2
+    } else if pixel != 0 {
+        1
+    } else {
+        0
+    }
+}
+
+
 fn draw_bg_line(sys_state: &mut SystemState,
-                line: u8, screen_line: u8, bit7val: u8, window: bool,
-                mut bg_zero: Option<&mut [bool; 160]>)
+                line: u8, screen_line: u8, window: bool,
+                bg_prio: &mut [u8; 160])
 {
     let d = &mut sys_state.display;
     let sofs = screen_line as usize * 160;
@@ -108,17 +185,19 @@ fn draw_bg_line(sys_state: &mut SystemState,
     let pixels = &mut d.lcd_pixels[sofs..eofs];
 
     let bg_tile_map = unsafe {
-        (sys_state.addr_space.full_vram.offset(d.bg_tile_map),
-         sys_state.addr_space.full_vram.offset(d.bg_tile_map + 0x2000))
+        (sys_state.addr_space.full_vram.offset(d.bg_tile_map) as *const u8,
+         sys_state.addr_space.full_vram.offset(d.bg_tile_map + 0x2000)
+             as *const u8)
     };
 
     let tile_data = unsafe {
-        sys_state.addr_space.full_vram.offset(d.tile_data)
+        sys_state.addr_space.full_vram.offset(d.tile_data) as *const u8
     };
 
     let tile_data_signed = d.tile_data == 0x1000;
 
     let sx = sys_state.io_regs[IOReg::SCX as usize];
+    let wx = sys_state.io_regs[IOReg::WX as usize].wrapping_sub(7);
     let mut bx = sx & 0xf8;
     let ex = sx.wrapping_add(167) & 0xf8;
     let by = (line & 0xf8) as isize;
@@ -126,80 +205,24 @@ fn draw_bg_line(sys_state: &mut SystemState,
     let mut tile = (by << 2) + ((bx as isize) >> 3);
 
     while bx != ex {
-        if window && sys_state.io_regs[IOReg::WX as usize] <= bx {
+        if window && wx <= bx {
             break;
         }
 
-        let flags =
-            if sys_state.cgb {
-                unsafe {
-                    *bg_tile_map.1.offset(tile)
-                }
-            } else {
-                0
-            };
-
-        if flags & (1 << 7) != bit7val {
-            let (nbx, wrap) = bx.overflowing_add(8);
-            bx = nbx;
-            if wrap {
-                tile -= 31;
-            } else {
-                tile += 1;
-            }
-            continue;
-        }
-
-        let (data_ofs, pal_bi) =
-            if sys_state.cgb {
-                (if flags & (1 << 3) != 0 { 0x2000 } else { 0 },
-                 ((flags & 7) as usize) * 4)
-            } else {
-                (0, 0)
-            };
-
-        let data_ptr =
-            unsafe {
-                let map = *bg_tile_map.0.offset(tile);
-                if tile_data_signed {
-                    tile_data.offset(map as i8 as isize * 16 + data_ofs)
-                } else {
-                    tile_data.offset(map as isize * 16 + data_ofs)
-                }
-            };
-
-        let data =
-            unsafe {
-                if flags & (1 << 6) == 0 {
-                    (*data_ptr.offset(ry * 2),
-                     *data_ptr.offset(ry * 2 + 1))
-                } else {
-                    (*data_ptr.offset((7 - ry) * 2),
-                     *data_ptr.offset((7 - ry) * 2 + 1))
-                }
-            };
+        let flags = fetch_tile_flags(bg_tile_map, tile, sys_state.cgb);
+        let (data, pal_bi) = get_tile_data_and_pal(bg_tile_map, tile_data,
+                                                   tile_data_signed, flags,
+                                                   tile, ry, 8, sys_state.cgb);
 
         for rx in 0..8 {
             let screen_x = (bx + rx).wrapping_sub(sx) as usize;
-
             if screen_x >= 160 {
                 break;
             }
 
-            let mask =
-                if flags & (1 << 5) == 0 {
-                    1 << (7 - rx)
-                } else {
-                    1 << rx
-                };
-
-            let val = ((data.0 & mask != 0) as usize) |
-                      (((data.1 & mask != 0) as usize) * 2);
-
+            let val = get_tile_obj_pixel(data, rx, flags);
             pixels[screen_x] = d.bg_palette[pal_bi + val];
-            if bg_zero.is_some() {
-                bg_zero.as_mut().unwrap()[screen_x] = val == 0;
-            }
+            bg_prio[screen_x] = get_tile_prio(val, flags, d.obj_prio);
         }
 
         let (nbx, wrap) = bx.overflowing_add(8);
@@ -213,8 +236,63 @@ fn draw_bg_line(sys_state: &mut SystemState,
 }
 
 
+fn draw_wnd_line(sys_state: &mut SystemState,
+                 screen_line: u8, bg_prio: &mut [u8; 160])
+{
+    let d = &mut sys_state.display;
+    let sofs = screen_line as usize * 160;
+    let eofs = sofs + 160;
+    let pixels = &mut d.lcd_pixels[sofs..eofs];
+
+    let wx = sys_state.io_regs[IOReg::WX as usize] - 7;
+    let wy = sys_state.io_regs[IOReg::WY as usize];
+
+    if screen_line < wy {
+        return;
+    }
+
+    let by = (screen_line - wy) & 0xf8;
+    let ry = (screen_line - wy) & 0x07;
+
+    let wnd_tile_map = unsafe {
+        (sys_state.addr_space.full_vram.offset(d.wnd_tile_map) as *const u8,
+         sys_state.addr_space.full_vram.offset(d.wnd_tile_map + 0x2000)
+             as *const u8)
+    };
+
+    let tile_data = unsafe {
+        sys_state.addr_space.full_vram.offset(d.tile_data) as *const u8
+    };
+
+    let tile_data_signed = d.tile_data == 0x1000;
+
+    let mut tile = (by as isize) << 2;
+
+    for bx in (wx..160).step_by(8) {
+        let flags = fetch_tile_flags(wnd_tile_map, tile, sys_state.cgb);
+        let (data, pal_bi) = get_tile_data_and_pal(wnd_tile_map, tile_data,
+                                                   tile_data_signed, flags,
+                                                   tile, ry as isize, 8,
+                                                   sys_state.cgb);
+
+        for rx in 0..8 {
+            let screen_x = (bx + rx) as usize;
+            if screen_x >= 160 {
+                break;
+            }
+
+            let val = get_tile_obj_pixel(data, rx, flags);
+            pixels[screen_x] = d.bg_palette[pal_bi + val];
+            bg_prio[screen_x] = get_tile_prio(val, flags, d.obj_prio);
+        }
+
+        tile += 1;
+    }
+}
+
+
 fn draw_obj_line(sys_state: &mut SystemState, screen_line: u8,
-                 bg_zero: &[bool; 160])
+                 bg_prio: &[u8; 160])
 {
     let d = &mut sys_state.display;
     let sofs = screen_line as usize * 160;
@@ -230,7 +308,7 @@ fn draw_obj_line(sys_state: &mut SystemState, screen_line: u8,
         let bx = unsafe { *oam.offset(oam_bi + 1) } as isize - 8;
 
         if by > screen_line as isize ||
-           by + d.obj_height as isize <= screen_line as isize
+           by + d.obj_height <= screen_line as isize
         {
             continue;
         }
@@ -246,12 +324,6 @@ fn draw_obj_line(sys_state: &mut SystemState, screen_line: u8,
 
         let mut ofs = unsafe { *oam.offset(oam_bi + 2) } as isize * 16;
         let flags = unsafe { *oam.offset(oam_bi + 3) };
-        let ry =
-            if flags & (1 << 6) == 0 {
-                screen_line as isize - by
-            } else {
-                d.obj_height as isize - 1 - (screen_line as isize - by)
-            };
 
         if d.obj_height == 16 {
             ofs &= !0x1f;
@@ -271,11 +343,9 @@ fn draw_obj_line(sys_state: &mut SystemState, screen_line: u8,
                 sys_state.addr_space.full_vram.offset(data_ofs + ofs)
             };
 
-        let data =
-            unsafe {
-                (*data_ptr.offset(ry * 2),
-                 *data_ptr.offset(ry * 2 + 1))
-            };
+        let data = fetch_tile_obj_data(data_ptr, flags,
+                                       screen_line as isize - by,
+                                       d.obj_height);
 
         for rx in 0..8 {
             let screen_x = (bx + rx) as usize;
@@ -283,18 +353,9 @@ fn draw_obj_line(sys_state: &mut SystemState, screen_line: u8,
                 continue;
             }
 
-            let mask =
-                if flags & (1 << 5) == 0 {
-                    1 << (7 - rx)
-                } else {
-                    1 << rx
-                };
-
-            let val = ((data.0 & mask != 0) as usize) |
-                      (((data.1 & mask != 0) as usize) << 1);
-
-            if val != 0 {
-                if flags & (1 << 7) == 0 || bg_zero[screen_x] {
+            let val = get_tile_obj_pixel(data, rx as u8, flags);
+            if val != 0 && bg_prio[screen_x] < 2 {
+                if flags & (1 << 7) == 0 || bg_prio[screen_x] < 1 {
                     pixels[screen_x] = d.obj_palette[pal_bi + val];
                 }
             }
@@ -307,7 +368,7 @@ fn draw_line(sys_state: &mut SystemState, line: u8) {
     let sofs = line as usize * 160;
     let eofs = sofs + 160;
     let pixels = &mut sys_state.display.lcd_pixels[sofs..eofs];
-    let mut bg_zero = [false; 160];
+    let mut bg_prio = [0u8; 160];
 
     if !sys_state.display.enabled {
         for p in pixels {
@@ -323,23 +384,20 @@ fn draw_line(sys_state: &mut SystemState, line: u8) {
                         sys_state.io_regs[IOReg::WX as usize] <= 166 &&
                         sys_state.io_regs[IOReg::WY as usize] <= line;
 
-    if !sys_state.display.tiles_enabled {
+    if !sys_state.display.bg_enabled {
         for p in pixels {
             *p = 0x000000;
         }
     } else {
-        draw_bg_line(sys_state, abs_line, line, 0 << 7, window_active,
-                     Some(&mut bg_zero));
+        draw_bg_line(sys_state, abs_line, line, window_active, &mut bg_prio);
     }
 
-    /* TODO: Window */
+    if window_active {
+        draw_wnd_line(sys_state, line, &mut bg_prio);
+    }
 
     if sys_state.display.obj_enabled {
-        draw_obj_line(sys_state, line, &bg_zero);
-    }
-
-    if sys_state.display.tiles_enabled && sys_state.cgb {
-        draw_bg_line(sys_state, abs_line, line, 1 << 7, window_active, None);
+        draw_obj_line(sys_state, line, &bg_prio);
     }
 }
 
@@ -498,7 +556,14 @@ pub fn lcd_write(sys_state: &mut SystemState, addr: u16, mut val: u8) {
             d.enabled       = val & (1 << 7) != 0;
             d.wnd_enabled   = val & (1 << 5) != 0;
             d.obj_enabled   = val & (1 << 1) != 0;
-            d.tiles_enabled = val & (1 << 0) != 0;
+
+            if sys_state.cgb {
+                d.bg_enabled = val & (1 << 0) != 0;
+                d.obj_prio   = false;
+            } else {
+                d.obj_prio   = val & (1 << 0) != 0;
+                d.bg_enabled = true;
+            }
 
             d.wnd_tile_map  = if val & (1 << 6) != 0 { 0x1c00 } else { 0x1800 };
             d.tile_data     = if val & (1 << 4) != 0 { 0x0000 } else { 0x1000 };
