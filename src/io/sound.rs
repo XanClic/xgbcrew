@@ -26,6 +26,7 @@ impl SharedState {
 struct ToneSweep {
     channel: usize,
     time: f32,
+    enabled: bool,
 
     nrx0: u8,
     nrx1: u8,
@@ -51,8 +52,6 @@ struct ToneSweep {
     sweep_n: usize,
     sweep_time: f32,
     sweep_counter: f32,
-
-    enabled: bool,
 }
 
 impl ToneSweep {
@@ -60,6 +59,7 @@ impl ToneSweep {
         let mut ts = Self {
             channel: channel,
             time: 0.0,
+            enabled: false,
 
             nrx0: 0x80,
             nrx1: 0xbf,
@@ -85,8 +85,6 @@ impl ToneSweep {
             sweep_n: 0,
             sweep_time: 0.0,
             sweep_counter: 0.0,
-
-            enabled: false,
         };
 
         ts.update_freq(true);
@@ -231,6 +229,177 @@ impl ToneSweep {
 }
 
 
+struct Noise {
+    channel: usize,
+    enabled: bool,
+
+    nrx1: u8,
+    nrx2: u8,
+    nrx3: u8,
+    nrx4: u8,
+
+    shift_time: f32,
+    vol: f32,
+    lfsr: u16,
+    bits15: bool,
+    output_counter: f32,
+
+    sample_count: usize,
+    samples_limited: bool,
+
+    env_enabled: bool,
+    env_amplify: bool,
+    env_len: f32,
+    env_counter: f32,
+}
+
+impl Noise {
+    fn new(channel: usize) -> Self {
+        Self {
+            channel: channel,
+            enabled: false,
+
+            nrx1: 0xff,
+            nrx2: 0x00,
+            nrx3: 0x00,
+            nrx4: 0xbf,
+
+            shift_time: 0.0,
+            vol: 0.0,
+            lfsr: 0x7fff,
+            bits15: false,
+            output_counter: 0.0,
+
+            sample_count: 0,
+            samples_limited: false,
+
+            env_enabled: false,
+            env_amplify: false,
+            env_len: 0.0,
+            env_counter: 0.0,
+        }
+    }
+
+    fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+
+        if enabled {
+            io_set_reg(IOReg::NR52,
+                       io_get_reg(IOReg::NR52) | (1 << self.channel));
+        } else {
+            io_set_reg(IOReg::NR52,
+                       io_get_reg(IOReg::NR52) & !(1 << self.channel));
+        }
+    }
+
+    fn update_freq(&mut self) {
+        let mut r = self.nrx3 & 0x07;
+        let s = self.nrx3 >> 4;
+
+        if r == 0 {
+            r = 1;
+        } else {
+            r *= 2;
+        }
+
+        self.shift_time = (r as f32 * ((s + 1) as f32).exp2()) / 1048576.0;
+    }
+
+    fn update_len(&mut self) {
+        self.samples_limited = self.nrx4 & (1 << 6) != 0;
+        if self.samples_limited {
+            let x = self.nrx1 & 0x3f;
+            self.sample_count = ((64 - x) as f32 * (44100.0 / 256.0)) as usize;
+        }
+    }
+
+    fn update_envelope(&mut self) {
+        self.vol = (self.nrx2 >> 4) as f32;
+        if self.nrx2 & 0x07 != 0 {
+            self.env_enabled = true;
+            self.env_amplify = self.nrx2 & 0x08 != 0;
+            self.env_len = (self.nrx2 & 0x07) as f32 * (44100.0 / 64.0);
+            self.env_counter = 0.0;
+        } else {
+            self.env_enabled = false;
+        }
+    }
+
+    fn initialize(&mut self) {
+        self.update_envelope();
+        self.update_len();
+        self.update_freq();
+
+        self.bits15 = self.nrx3 & (1 << 3) == 0;
+        if self.bits15 {
+            self.lfsr = 0x7fff;
+        } else {
+            self.lfsr = 0x7f;
+        }
+        self.output_counter = 0.0;
+
+        self.set_enabled(true);
+    }
+
+    fn shift(&mut self) {
+        if self.bits15 {
+            self.lfsr =
+                (self.lfsr >> 1) |
+                (((self.lfsr & (1 << 1)) << 13) ^
+                 ((self.lfsr & (1 << 0)) << 14));
+        } else {
+            self.lfsr =
+                (self.lfsr >> 1) |
+                (((self.lfsr & (1 << 1)) << 5) ^
+                 ((self.lfsr & (1 << 0)) << 6));
+        }
+    }
+
+    fn get_sample(&mut self) -> f32 {
+        if !self.enabled {
+            return 0.0;
+        }
+
+        if self.samples_limited {
+            if self.sample_count == 0 {
+                self.set_enabled(false);
+                return 0.0;
+            }
+            self.sample_count -= 1;
+        }
+
+        if self.env_enabled {
+            self.env_counter += 1.0;
+            if self.env_counter >= self.env_len {
+                if self.env_amplify {
+                    if self.vol > 14.5 {
+                        self.env_enabled = false;
+                    } else {
+                        self.vol += 1.0;
+                    }
+                } else {
+                    if self.vol < 0.5 {
+                        self.env_enabled = false;
+                    } else {
+                        self.vol -= 1.0;
+                    }
+                }
+
+                self.env_counter -= self.env_len;
+            }
+        }
+
+        self.output_counter += 1.0 / 44100.0;
+        while self.output_counter >= self.shift_time {
+            self.shift();
+            self.output_counter -= self.shift_time;
+        }
+
+        if self.lfsr & 1 == 0 { -self.vol } else { self.vol }
+    }
+}
+
+
 pub struct SoundState {
     sdl_audio: sdl2::AudioSubsystem,
     adev: Option<sdl2::audio::AudioDevice<Output>>,
@@ -244,6 +413,7 @@ pub struct SoundState {
 
     ch1: ToneSweep,
     ch2: ToneSweep,
+    ch4: Noise,
 }
 
 impl SoundState {
@@ -264,6 +434,7 @@ impl SoundState {
 
             ch1: ToneSweep::new(0),
             ch2: ToneSweep::new(1),
+            ch4: Noise::new(3),
         }
     }
 
@@ -292,6 +463,7 @@ impl SoundState {
         self.shared = SharedState::new();
         self.ch1 = ToneSweep::new(0);
         self.ch2 = ToneSweep::new(1);
+        self.ch4 = Noise::new(3);
 
         self.outbuf_done.store(0, Ordering::Release);
     }
@@ -340,17 +512,20 @@ impl SoundState {
 
             let ch1 = self.ch1.get_sample();
             let ch2 = self.ch2.get_sample();
+            let ch4 = self.ch4.get_sample();
 
             let cm = self.shared.channel_mask;
             let ch1_f = (if cm & (1 << 0) != 0 { ch1 } else { 0.0 },
                          if cm & (1 << 4) != 0 { ch1 } else { 0.0 });
             let ch2_f = (if cm & (1 << 1) != 0 { ch2 } else { 0.0 },
                          if cm & (1 << 5) != 0 { ch2 } else { 0.0 });
+            let ch4_f = (if cm & (1 << 3) != 0 { ch4 } else { 0.0 },
+                         if cm & (1 << 7) != 0 { ch4 } else { 0.0 });
 
             let mut cht_f = (
-                    (ch1_f.0 + ch2_f.0) *
+                    (ch1_f.0 + ch2_f.0 + ch4_f.0) *
                         self.shared.lvol * (127.0 / (15.0 * 7.0)),
-                    (ch1_f.1 + ch2_f.1) *
+                    (ch1_f.1 + ch2_f.1 + ch4_f.0) *
                         self.shared.rvol * (127.0 / (15.0 * 7.0))
                 );
 
@@ -459,6 +634,29 @@ pub fn sound_write(sys_state: &mut SystemState, addr: u16, mut val: u8)
 
             if val & 0x80 != 0 {
                 s.ch2.initialize();
+            }
+
+            val &= 0x40;
+        },
+
+        0x20 => {
+            s.ch4.nrx1 = val;
+            val = 0;
+        },
+
+        0x21 => {
+            s.ch4.nrx2 = val;
+        },
+
+        0x22 => {
+            s.ch4.nrx3 = val;
+        },
+
+        0x23 => {
+            s.ch4.nrx4 = val;
+
+            if val & 0x80 != 0 {
+                s.ch4.initialize();
             }
 
             val &= 0x40;
