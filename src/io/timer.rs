@@ -1,3 +1,4 @@
+use crate::io::{io_get_reg, io_set_addr, io_set_reg};
 use crate::io::int::IRQ;
 use crate::system_state::{IOReg, SystemState};
 
@@ -28,8 +29,8 @@ pub fn add_cycles(sys_state: &mut SystemState, count: u32) {
 
     timer.div_counter += count;
     while timer.div_counter >= 64 {
-        let cur = sys_state.io_regs[IOReg::DIV as usize];
-        sys_state.io_regs[IOReg::DIV as usize] = cur.wrapping_add(1u8);
+        let cur = io_get_reg(IOReg::DIV);
+        io_set_reg(IOReg::DIV, cur.wrapping_add(1u8));
 
         timer.div_counter -= 64;
     }
@@ -37,15 +38,17 @@ pub fn add_cycles(sys_state: &mut SystemState, count: u32) {
     if timer.timer_enabled {
         timer.timer_counter += count;
         while timer.timer_counter >= timer.timer_divider {
-            let cur = sys_state.io_regs[IOReg::TIMA as usize];
+            let cur = io_get_reg(IOReg::TIMA);
             let (mut res, overflow) = cur.overflowing_add(1u8);
 
             if overflow {
-                sys_state.io_regs[IOReg::IF as usize] |= IRQ::Timer as u8;
-                res = sys_state.io_regs[IOReg::TMA as usize];
+                io_set_reg(IOReg::IF,
+                           io_get_reg(IOReg::IF) | (IRQ::Timer as u8));
+
+                res = io_get_reg(IOReg::TMA);
             }
 
-            sys_state.io_regs[IOReg::TIMA as usize] = res;
+            io_set_reg(IOReg::TIMA, res);
             timer.timer_counter -= timer.timer_divider;
         }
     }
@@ -70,5 +73,5 @@ pub fn timer_write(sys_state: &mut SystemState, addr: u16, mut val: u8)
         };
     }
 
-    sys_state.io_regs[addr as usize] = val;
+    io_set_addr(addr, val);
 }

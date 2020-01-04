@@ -87,8 +87,6 @@ pub struct SystemState {
     pub ints_enabled: bool,
     pub double_speed: bool,
 
-    pub io_regs: [u8; 256],
-
     pub display: DisplayState,
     pub timer: TimerState,
 }
@@ -96,6 +94,8 @@ pub struct SystemState {
 
 impl SystemState {
     pub fn new(addr_space: AddressSpace) -> Self {
+        let sdl = sdl2::init().unwrap();
+
         let mut state = Self {
             addr_space: addr_space,
 
@@ -103,13 +103,12 @@ impl SystemState {
             ints_enabled: true,
             double_speed: false,
 
-            io_regs: [0u8; 256],
-
-            display: DisplayState::new(),
+            display: DisplayState::new(&sdl),
             timer: TimerState::new(),
         };
 
         DisplayState::init_system_state(&mut state);
+        io::init_dma(&mut state);
 
         state.io_regs[IOReg::NR10 as usize] = 0x80;
         state.io_regs[IOReg::NR11 as usize] = 0xBF;
@@ -130,18 +129,18 @@ impl SystemState {
         state.io_regs[IOReg::NR51 as usize] = 0xF3;
         state.io_regs[IOReg::NR52 as usize] = 0xF1;
 
-        // FIXME (shouldn't be here)
-        state.io_regs[IOReg::HDMA1 as usize] = 0x00;
-        state.io_regs[IOReg::HDMA2 as usize] = 0x00;
-        state.io_regs[IOReg::HDMA3 as usize] = 0x80;
-        state.io_regs[IOReg::HDMA4 as usize] = 0x00;
-        state.io_regs[IOReg::HDMA5 as usize] = 0x80;
-
         state
     }
 
     pub fn add_cycles(&mut self, count: u32) {
-        io::lcd::add_cycles(self, count);
+        let dcycles =
+            if self.double_speed {
+                count
+            } else {
+                count * 2
+            };
+
+        io::lcd::add_cycles(self, dcycles);
         io::timer::add_cycles(self, count);
     }
 }

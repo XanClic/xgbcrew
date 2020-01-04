@@ -1,5 +1,5 @@
 use crate::address_space::get_raw_read_addr;
-use crate::io::{hdma_copy_16b, io_write};
+use crate::io::{hdma_copy_16b, io_get_reg, io_set_addr, io_set_reg, io_write};
 use crate::io::int::IRQ;
 use crate::system_state::{IOReg, SystemState};
 
@@ -33,8 +33,7 @@ pub struct DisplayState {
 
 
 impl DisplayState {
-    pub fn new() -> Self {
-        let sdl = sdl2::init().unwrap();
+    pub fn new(sdl: &sdl2::Sdl) -> Self {
         let vid = sdl.video().unwrap();
         let evt_pump = sdl.event_pump().unwrap();
 
@@ -196,8 +195,8 @@ fn draw_bg_line(sys_state: &mut SystemState,
 
     let tile_data_signed = d.tile_data == 0x1000;
 
-    let sx = sys_state.io_regs[IOReg::SCX as usize];
-    let wx = sys_state.io_regs[IOReg::WX as usize].wrapping_sub(7);
+    let sx = io_get_reg(IOReg::SCX);
+    let wx = io_get_reg(IOReg::WX).wrapping_sub(7);
     let mut bx = sx & 0xf8;
     let ex = sx.wrapping_add(167) & 0xf8;
     let by = (line & 0xf8) as isize;
@@ -244,8 +243,8 @@ fn draw_wnd_line(sys_state: &mut SystemState,
     let eofs = sofs + 160;
     let pixels = &mut d.lcd_pixels[sofs..eofs];
 
-    let wx = sys_state.io_regs[IOReg::WX as usize] - 7;
-    let wy = sys_state.io_regs[IOReg::WY as usize];
+    let wx = io_get_reg(IOReg::WX) - 7;
+    let wy = io_get_reg(IOReg::WY);
 
     if screen_line < wy {
         return;
@@ -378,12 +377,12 @@ fn draw_line(sys_state: &mut SystemState, line: u8) {
         return;
     }
 
-    let sy = sys_state.io_regs[IOReg::SCY as usize];
+    let sy = io_get_reg(IOReg::SCY);
     let abs_line = line.wrapping_add(sy);
+    let wx = io_get_reg(IOReg::WX);
+    let wy = io_get_reg(IOReg::WY);
     let window_active = sys_state.display.wnd_enabled &&
-                        sys_state.io_regs[IOReg::WX as usize] >= 7 &&
-                        sys_state.io_regs[IOReg::WX as usize] <= 166 &&
-                        sys_state.io_regs[IOReg::WY as usize] <= line;
+                        wx >= 7 && wx <= 166 && wy <= line;
 
     if !sys_state.display.bg_enabled {
         for p in pixels {
@@ -406,22 +405,22 @@ fn draw_line(sys_state: &mut SystemState, line: u8) {
 fn stat_mode_transition(sys_state: &mut SystemState, ly: u8, from: u8, to: u8) {
     assert!((ly > 143) == (to == 1));
 
-    let mut stat = sys_state.io_regs[IOReg::STAT as usize];
+    let mut stat = io_get_reg(IOReg::STAT);
 
     stat = (stat & !7) | to;
-    if ly == sys_state.io_regs[IOReg::LYC as usize] {
+    if ly == io_get_reg(IOReg::LYC) {
         stat |= 1 << 2;
     }
 
-    sys_state.io_regs[IOReg::STAT as usize] = stat;
-    sys_state.io_regs[IOReg::LY as usize] = ly;
+    io_set_reg(IOReg::STAT, stat);
+    io_set_reg(IOReg::LY, ly);
 
     /* Care must be taken to only generate each interrupt on the
      * event's leading edge */
     if stat & 0b01000100 == 0b01000100 /* LYC match */ &&
        to == 2 || to == 1 /* First submodes per line */
     {
-        sys_state.io_regs[IOReg::IF as usize] |= IRQ::LCDC as u8;
+        io_set_reg(IOReg::IF, io_get_reg(IOReg::IF) | (IRQ::LCDC as u8));
     }
 
     let new_mode = to != from || to == 1;
@@ -431,11 +430,11 @@ fn stat_mode_transition(sys_state: &mut SystemState, ly: u8, from: u8, to: u8) {
            stat & 0b00010011 == 0b00010001 /* Mode 1 */ ||
            stat & 0b00001011 == 0b00001000 /* Mode 0 */
         {
-            sys_state.io_regs[IOReg::IF as usize] |= IRQ::LCDC as u8;
+            io_set_reg(IOReg::IF, io_get_reg(IOReg::IF) | (IRQ::LCDC as u8));
         }
 
         if to == 1 {
-            sys_state.io_regs[IOReg::IF as usize] |= IRQ::VBlank as u8;
+            io_set_reg(IOReg::IF, io_get_reg(IOReg::IF) | (IRQ::VBlank as u8));
 
             if from != 1 {
                 /* Entered VBlank */
@@ -457,25 +456,22 @@ fn stat_mode_transition(sys_state: &mut SystemState, ly: u8, from: u8, to: u8) {
 
     if to == 3 {
         draw_line(sys_state, ly);
-    } else if to == 0 && sys_state.io_regs[IOReg::HDMA5 as usize] & 0x80 == 0 {
+    } else if to == 0 && io_get_reg(IOReg::HDMA5) & 0x80 == 0 {
         hdma_copy_16b(sys_state);
     }
 }
 
-pub fn add_cycles(sys_state: &mut SystemState, mut cycles: u32) {
+/* @cycles must be in double-speed cycles */
+pub fn add_cycles(sys_state: &mut SystemState, cycles: u32) {
     if !sys_state.display.enabled {
         return;
     }
 
-    if !sys_state.double_speed {
-        cycles *= 2;
-    }
-
     let mut line_timer = sys_state.display.line_timer + cycles;
-    let mut ly = sys_state.io_regs[IOReg::LY as usize];
+    let mut ly = io_get_reg(IOReg::LY);
 
     loop {
-        let submode = sys_state.io_regs[IOReg::STAT as usize] & 3;
+        let submode = io_get_reg(IOReg::STAT) & 3;
 
         if submode == 1 {
             if line_timer >= 228 {
@@ -577,7 +573,7 @@ pub fn lcd_write(sys_state: &mut SystemState, addr: u16, mut val: u8) {
         },
 
         0x41 => {
-            val = (sys_state.io_regs[addr as usize] & 0x87) | val & 0x78;
+            val = (io_get_reg(IOReg::STAT) & 0x87) | val & 0x78;
         },
 
         0x42 | 0x43 | 0x4a | 0x4b => (),
@@ -587,13 +583,14 @@ pub fn lcd_write(sys_state: &mut SystemState, addr: u16, mut val: u8) {
         },
 
         0x45 => {
-            if val == sys_state.io_regs[IOReg::LY as usize] {
-                let mut stat = sys_state.io_regs[IOReg::STAT as usize];
+            if val == io_get_reg(IOReg::LY) {
+                let mut stat = io_get_reg(IOReg::STAT);
                 stat |= 1 << 2;
-                sys_state.io_regs[IOReg::STAT as usize] = stat;
+                io_set_reg(IOReg::STAT, stat);
 
                 if stat & 0b01000100 == 0b01000100 {
-                    sys_state.io_regs[IOReg::IF as usize] |= IRQ::LCDC as u8;
+                    io_set_reg(IOReg::IF,
+                               io_get_reg(IOReg::IF) | (IRQ::LCDC as u8));
                 }
             }
         },
@@ -637,12 +634,12 @@ pub fn lcd_write(sys_state: &mut SystemState, addr: u16, mut val: u8) {
             val &= 0xbf;
 
             let i = (val as usize & 0x3e) >> 1;
-            sys_state.io_regs[IOReg::BCPD as usize] =
-                if val & 0x01 == 0 {
-                    d.bg_palette15[i] as u8
-                } else {
-                    (d.bg_palette15[i] >> 8) as u8
-                };
+            io_set_reg(IOReg::BCPD,
+                       if val & 0x01 == 0 {
+                           d.bg_palette15[i] as u8
+                       } else {
+                           (d.bg_palette15[i] >> 8) as u8
+                       });
 
             d.bcps = val;
         },
@@ -679,12 +676,12 @@ pub fn lcd_write(sys_state: &mut SystemState, addr: u16, mut val: u8) {
             val &= 0xbf;
 
             let i = (val as usize & 0x3e) >> 1;
-            sys_state.io_regs[IOReg::OCPD as usize] =
-                if val & 0x01 == 0 {
-                    d.obj_palette15[i] as u8
-                } else {
-                    (d.obj_palette15[i] >> 8) as u8
-                };
+            io_set_reg(IOReg::OCPD,
+                       if val & 0x01 == 0 {
+                           d.obj_palette15[i] as u8
+                       } else {
+                           (d.obj_palette15[i] >> 8) as u8
+                       });
 
             d.ocps = val;
         },
@@ -717,9 +714,9 @@ pub fn lcd_write(sys_state: &mut SystemState, addr: u16, mut val: u8) {
 
         _ => {
             panic!("Unknown LCD register 0xff{:02x} (w 0x{:02x})", addr, val);
-            // sys_state.io_regs[addr as usize] = val;
+            // io_set_reg(addr, val);
         }
     }
 
-    sys_state.io_regs[addr as usize] = val;
+    io_set_addr(addr, val);
 }

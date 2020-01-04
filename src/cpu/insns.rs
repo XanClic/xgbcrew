@@ -4,7 +4,7 @@
 use crate::{mem, regs, regs8, regs16, regs16_split, flags, single_flag_mask};
 use crate::address_space::{AS_BASE, U8Split};
 use crate::cpu::{CPU, IIOperation};
-use crate::io::{io_read, io_write};
+use crate::io::{io_get_reg, io_read, io_write};
 use crate::system_state::IOReg;
 
 
@@ -61,7 +61,7 @@ fn prefix0x10(cpu: &mut CPU) {
     let mut sys_state = cpu.sys_state.borrow_mut();
 
     /* STOP */
-    if sys_state.io_regs[IOReg::KEY1 as usize] & 0x01 == 0 {
+    if io_get_reg(IOReg::KEY1) & 0x01 == 0 {
         cpu_panic(cpu, "STOP");
     }
 

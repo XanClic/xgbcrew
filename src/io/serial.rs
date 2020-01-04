@@ -1,7 +1,8 @@
+use crate::io::io_set_reg;
 use crate::system_state::{IOReg, SystemState};
 
 
-pub fn serial_write(sys_state: &mut SystemState, addr: u16, val: u8)
+pub fn serial_write(_: &mut SystemState, addr: u16, val: u8)
 {
     /* TODO */
 
@@ -12,7 +13,7 @@ pub fn serial_write(sys_state: &mut SystemState, addr: u16, val: u8)
 
         0x02 => {
             /* Pretend immediate end of transfer */
-            sys_state.io_regs[IOReg::SC as usize] = val & 0x01;
+            io_set_reg(IOReg::SC, val & 0x01);
         }
 
         _ => {

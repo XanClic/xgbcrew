@@ -37,6 +37,12 @@ pub struct AddressSpace {
 
 extern "C" fn close_shm() {
     unsafe {
+        libc::shm_unlink("/xgbcrew-hram\0".as_bytes().as_ptr()
+                             as *const libc::c_char);
+
+        libc::shm_unlink("/xgbcrew-vram\0".as_bytes().as_ptr()
+                             as *const libc::c_char);
+
         libc::shm_unlink("/xgbcrew-wram\0".as_bytes().as_ptr()
                              as *const libc::c_char);
     }
@@ -78,7 +84,9 @@ impl U8Split for u16 {
 
 impl AddressSpace {
     pub fn new(rom_path: &String, ram_path: &String) -> Self {
-        Self {
+        Self::register_shm_unlink_handler();
+
+        let mut addr_space = Self {
             rom_file: std::fs::OpenOptions::new()
                         .read(true)
                         .open(rom_path).unwrap(),
@@ -111,11 +119,17 @@ impl AddressSpace {
             hram_shm: None,
             vram_shm: None,
             wram_shm: None,
-        }
+        };
+
+        /* I/O must be mapped for further system initalization */
+        addr_space.ensure_hram_shm();
+        addr_space.map_hram();
+
+        addr_space
     }
 
     fn mmap(&mut self, addr: usize, fd: libc::c_int, offset: usize, size: usize,
-            prot: libc::c_int, flags: libc::c_int)
+            prot: libc::c_int, flags: libc::c_int, zero: bool)
         -> *mut libc::c_void
     {
         let res = unsafe {
@@ -125,6 +139,12 @@ impl AddressSpace {
 
         if res == libc::MAP_FAILED {
             panic!("mmap() failed");
+        }
+
+        if zero {
+            unsafe {
+                libc::memset(res as *mut libc::c_void, 0, size);
+            }
         }
 
         res
@@ -146,7 +166,8 @@ impl AddressSpace {
         }
 
         self.mmap(AS_BASE, self.rom_file.as_raw_fd(), 0, 0x4000,
-                  libc::PROT_READ, libc::MAP_PRIVATE | libc::MAP_FIXED);
+                  libc::PROT_READ, libc::MAP_PRIVATE | libc::MAP_FIXED,
+                  false);
         self.rom0_mapped = Some(());
     }
 
@@ -160,7 +181,7 @@ impl AddressSpace {
 
         self.mmap(AS_BASE + 0x4000, self.rom_file.as_raw_fd(),
                   self.rom_bank * 0x4000usize, 0x4000,
-                  libc::PROT_READ, libc::MAP_PRIVATE | libc::MAP_FIXED);
+                  libc::PROT_READ, libc::MAP_PRIVATE | libc::MAP_FIXED, false);
         self.romn_mapped = Some(self.rom_bank);
     }
 
@@ -175,7 +196,7 @@ impl AddressSpace {
         self.mmap(AS_BASE + 0x8000, self.vram_shm.unwrap(),
                   self.vram_bank * 0x2000usize, 0x2000,
                   libc::PROT_READ | libc::PROT_WRITE,
-                  libc::MAP_SHARED | libc::MAP_FIXED);
+                  libc::MAP_SHARED | libc::MAP_FIXED, false);
         self.vram_mapped = Some(self.vram_bank);
     }
 
@@ -197,12 +218,14 @@ impl AddressSpace {
 
             if bank == -1isize as usize {
                 self.mmap(AS_BASE + 0xa000, -1, 0, 0x2000,
-                          prot, libc::MAP_PRIVATE | libc::MAP_FIXED |
-                          libc::MAP_ANONYMOUS);
+                          prot,
+                          libc::MAP_PRIVATE | libc::MAP_FIXED |
+                          libc::MAP_ANONYMOUS,
+                          false);
             } else {
                 self.mmap(AS_BASE + 0xa000, self.extram_file.as_raw_fd(),
                           bank * 0x2000usize, 0x2000,
-                          prot, libc::MAP_SHARED | libc::MAP_FIXED);
+                          prot, libc::MAP_SHARED | libc::MAP_FIXED, false);
             }
         }
         self.extram_mapped = self.extram_bank;
@@ -241,6 +264,12 @@ impl AddressSpace {
     fn ensure_hram_shm(&mut self) {
         if self.hram_shm.is_none() {
             self.hram_shm = Some(Self::create_shm("/xcgbcrew-hram\0", 0x1000));
+
+            let hram = self.mmap(0, self.hram_shm.unwrap(), 0, 0x1000,
+                                 libc::PROT_READ | libc::PROT_WRITE,
+                                 libc::MAP_SHARED, true)
+                       as usize;
+            self.munmap(hram, 0x1000);
         }
     }
 
@@ -250,7 +279,7 @@ impl AddressSpace {
 
             self.full_vram = self.mmap(0, self.vram_shm.unwrap(), 0, 0x4000,
                                        libc::PROT_READ | libc::PROT_WRITE,
-                                       libc::MAP_SHARED)
+                                       libc::MAP_SHARED, true)
                              as *mut u8;
         }
     }
@@ -258,6 +287,12 @@ impl AddressSpace {
     fn ensure_wram_shm(&mut self) {
         if self.wram_shm.is_none() {
             self.wram_shm = Some(Self::create_shm("/xcgbcrew-wram\0", 0x8000));
+
+            let wram = self.mmap(0, self.wram_shm.unwrap(), 0, 0x8000,
+                                 libc::PROT_READ | libc::PROT_WRITE,
+                                 libc::MAP_SHARED, true)
+                       as usize;
+            self.munmap(wram, 0x8000);
         }
     }
 
@@ -268,10 +303,10 @@ impl AddressSpace {
 
         self.mmap(AS_BASE + 0xc000, self.wram_shm.unwrap(), 0, 0x1000,
                   libc::PROT_READ | libc::PROT_WRITE,
-                  libc::MAP_SHARED | libc::MAP_FIXED);
+                  libc::MAP_SHARED | libc::MAP_FIXED, false);
         self.mmap(AS_BASE + 0xe000, self.wram_shm.unwrap(), 0, 0x1000,
                   libc::PROT_READ | libc::PROT_WRITE,
-                  libc::MAP_SHARED | libc::MAP_FIXED);
+                  libc::MAP_SHARED | libc::MAP_FIXED, false);
         self.wram0_mapped = Some(());
     }
 
@@ -285,7 +320,7 @@ impl AddressSpace {
         self.mmap(AS_BASE + 0xd000, self.wram_shm.unwrap(),
                   self.wram_bank * 0x1000usize, 0x1000,
                   libc::PROT_READ | libc::PROT_WRITE,
-                  libc::MAP_SHARED | libc::MAP_FIXED);
+                  libc::MAP_SHARED | libc::MAP_FIXED, false);
         self.wramn_mapped = Some(self.wram_bank);
     }
 
@@ -312,16 +347,14 @@ impl AddressSpace {
          */
         self.mmap(AS_BASE + 0x10000, self.hram_shm.unwrap(), 0, 0x1000,
                   libc::PROT_READ | libc::PROT_WRITE,
-                  libc::MAP_SHARED | libc::MAP_FIXED);
+                  libc::MAP_SHARED | libc::MAP_FIXED, false);
         self.mmap(AS_BASE + 0xf000, self.hram_shm.unwrap(), 0, 0x1000,
                   libc::PROT_READ,
-                  libc::MAP_SHARED | libc::MAP_FIXED);
+                  libc::MAP_SHARED | libc::MAP_FIXED, false);
         self.hram_mapped = Some(());
     }
 
     pub fn map(&mut self) {
-        Self::register_shm_unlink_handler();
-
         self.map_rom0();
         self.remap_romn();
 

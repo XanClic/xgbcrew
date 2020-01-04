@@ -42,6 +42,6 @@ fn main() {
 
     let common_state = Rc::new(RefCell::new(state));
 
-    let mut cpu = CPU::new(Rc::clone(&common_state));
+    let mut cpu = CPU::new(common_state.clone());
     cpu.run();
 }

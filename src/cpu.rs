@@ -4,6 +4,7 @@ mod insns;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::io::{io_get_reg, io_set_reg};
 use crate::system_state::{IOReg, SystemState};
 
 
@@ -101,8 +102,7 @@ impl CPU {
                     let ss = self.sys_state.borrow();
 
                     (ss.ints_enabled,
-                     ss.io_regs[IOReg::IF as usize] &
-                     ss.io_regs[IOReg::IE as usize])
+                     io_get_reg(IOReg::IF) & io_get_reg(IOReg::IE))
                 };
 
                 if ime {
@@ -113,8 +113,8 @@ impl CPU {
                         { insns::push(self, self.pc); }
                         self.pc = 0x40 + irq * 8;
 
-                        let mut ss = self.sys_state.borrow_mut();
-                        ss.io_regs[IOReg::IF as usize] &= !(1 << irq);
+                        io_set_reg(IOReg::IF,
+                                   io_get_reg(IOReg::IF) & !(1 << irq));
                     }
                 }
             }
