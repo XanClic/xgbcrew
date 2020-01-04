@@ -203,29 +203,29 @@ const IOW_HANDLERS: [fn(&mut SystemState, u16, u8); 256] = [
     iow_not_implemented,
     iow_not_implemented,
     iow_plain, /* interrupt flags */
-    iow_plain, /* TODO: Sound */        /* 0x10 */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */        /* 0x18 */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */        /* 0x20 */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */
+    sound::sound_write,                 /* 0x10 */
+    sound::sound_write,
+    sound::sound_write,
+    sound::sound_write,
+    sound::sound_write,
+    sound::sound_write,
+    sound::sound_write,
+    sound::sound_write,
+    sound::sound_write,                 /* 0x18 */
+    sound::sound_write,
+    sound::sound_write,
+    sound::sound_write,
+    sound::sound_write,
+    sound::sound_write,
+    sound::sound_write,
+    sound::sound_write,
+    sound::sound_write,                 /* 0x20 */
+    sound::sound_write,
+    sound::sound_write,
+    sound::sound_write,
+    sound::sound_write,
+    sound::sound_write,
+    sound::sound_write,
     iow_not_implemented,
     iow_not_implemented,                /* 0x28 */
     iow_not_implemented,
@@ -235,22 +235,22 @@ const IOW_HANDLERS: [fn(&mut SystemState, u16, u8); 256] = [
     iow_not_implemented,
     iow_not_implemented,
     iow_not_implemented,
-    iow_plain, /* TODO: Sound */        /* 0x30 */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */        /* 0x38 */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */
-    iow_plain, /* TODO: Sound */
+    sound::sound_write,                 /* 0x30 */
+    sound::sound_write,
+    sound::sound_write,
+    sound::sound_write,
+    sound::sound_write,
+    sound::sound_write,
+    sound::sound_write,
+    sound::sound_write,
+    sound::sound_write,                 /* 0x38 */
+    sound::sound_write,
+    sound::sound_write,
+    sound::sound_write,
+    sound::sound_write,
+    sound::sound_write,
+    sound::sound_write,
+    sound::sound_write,
     lcd::lcd_write,                     /* 0x40 */
     lcd::lcd_write,
     lcd::lcd_write,

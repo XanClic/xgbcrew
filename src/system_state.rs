@@ -1,6 +1,7 @@
 use crate::address_space::AddressSpace;
 use crate::io;
 use crate::io::lcd::DisplayState;
+use crate::io::sound::SoundState;
 use crate::io::timer::TimerState;
 
 #[allow(dead_code)]
@@ -88,6 +89,7 @@ pub struct SystemState {
     pub double_speed: bool,
 
     pub display: DisplayState,
+    pub sound: SoundState,
     pub timer: TimerState,
 }
 
@@ -104,30 +106,13 @@ impl SystemState {
             double_speed: false,
 
             display: DisplayState::new(&sdl),
+            sound: SoundState::new(&sdl),
             timer: TimerState::new(),
         };
 
         DisplayState::init_system_state(&mut state);
+        SoundState::init_system_state(&mut state);
         io::init_dma(&mut state);
-
-        state.io_regs[IOReg::NR10 as usize] = 0x80;
-        state.io_regs[IOReg::NR11 as usize] = 0xBF;
-        state.io_regs[IOReg::NR12 as usize] = 0xF3;
-        state.io_regs[IOReg::NR14 as usize] = 0xBF;
-        state.io_regs[IOReg::NR21 as usize] = 0x3F;
-        state.io_regs[IOReg::NR22 as usize] = 0x00;
-        state.io_regs[IOReg::NR24 as usize] = 0xBF;
-        state.io_regs[IOReg::NR30 as usize] = 0x7F;
-        state.io_regs[IOReg::NR31 as usize] = 0xFF;
-        state.io_regs[IOReg::NR32 as usize] = 0x9F;
-        state.io_regs[IOReg::NR33 as usize] = 0xBF;
-        state.io_regs[IOReg::NR41 as usize] = 0xFF;
-        state.io_regs[IOReg::NR42 as usize] = 0x00;
-        state.io_regs[IOReg::NR43 as usize] = 0x00;
-        state.io_regs[IOReg::NR44 as usize] = 0xBF;
-        state.io_regs[IOReg::NR50 as usize] = 0x77;
-        state.io_regs[IOReg::NR51 as usize] = 0xF3;
-        state.io_regs[IOReg::NR52 as usize] = 0xF1;
 
         state
     }
@@ -141,6 +126,7 @@ impl SystemState {
             };
 
         io::lcd::add_cycles(self, dcycles);
+        self.sound.add_cycles(dcycles);
         io::timer::add_cycles(self, count);
     }
 }
