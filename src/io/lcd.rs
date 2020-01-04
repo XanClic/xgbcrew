@@ -423,9 +423,7 @@ fn stat_mode_transition(sys_state: &mut SystemState, ly: u8, from: u8, to: u8) {
         io_set_reg(IOReg::IF, io_get_reg(IOReg::IF) | (IRQ::LCDC as u8));
     }
 
-    let new_mode = to != from || to == 1;
-
-    if new_mode {
+    if to != from {
         if stat & 0b00100011 == 0b00100010 /* Mode 2 */ ||
            stat & 0b00010011 == 0b00010001 /* Mode 1 */ ||
            stat & 0b00001011 == 0b00001000 /* Mode 0 */
@@ -434,21 +432,18 @@ fn stat_mode_transition(sys_state: &mut SystemState, ly: u8, from: u8, to: u8) {
         }
 
         if to == 1 {
+            /* Entered VBlank */
             io_set_reg(IOReg::IF, io_get_reg(IOReg::IF) | (IRQ::VBlank as u8));
 
-            if from != 1 {
-                /* Entered VBlank */
+            sys_state.display.update();
 
-                sys_state.display.update();
+            while let Some(evt) = sys_state.display.evt_pump.poll_event() {
+                match evt {
+                    sdl2::event::Event::Quit { timestamp: _ } => {
+                        std::process::exit(0);
+                    },
 
-                while let Some(evt) = sys_state.display.evt_pump.poll_event() {
-                    match evt {
-                        sdl2::event::Event::Quit { timestamp: _ } => {
-                            std::process::exit(0);
-                        },
-
-                        _ => {},
-                    }
+                    _ => {},
                 }
             }
         }
