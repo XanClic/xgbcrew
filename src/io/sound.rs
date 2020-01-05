@@ -651,12 +651,16 @@ impl SoundState {
     }
 
     /* @cycles must be in double-speed cycles */
-    pub fn add_cycles(&mut self, cycles: u32) {
+    pub fn add_cycles(&mut self, cycles: u32, realtime: bool) {
         self.obuf_i_cycles += cycles as f32;
 
         while self.obuf_i_cycles >= (2097152.0 / 44100.0) {
             if self.obuf_i == FRAMES * 2 {
-                self.outbuf_done.recv().unwrap();
+                if realtime {
+                    self.outbuf_done.recv().unwrap();
+                } else {
+                    self.outbuf_done.try_recv().unwrap_or(());
+                }
                 self.obuf_i = 0;
             }
 

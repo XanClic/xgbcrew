@@ -1,6 +1,7 @@
 use crate::address_space::get_raw_read_addr;
 use crate::io::{hdma_copy_16b, io_get_reg, io_set_addr, io_set_reg, io_write};
 use crate::io::int::IRQ;
+use crate::io::keypad::key_event;
 use crate::system_state::{IOReg, SystemState};
 
 
@@ -441,6 +442,28 @@ fn stat_mode_transition(sys_state: &mut SystemState, ly: u8, from: u8, to: u8) {
                 match evt {
                     sdl2::event::Event::Quit { timestamp: _ } => {
                         std::process::exit(0);
+                    },
+
+                    sdl2::event::Event::KeyDown {
+                        timestamp: _,
+                        window_id: _,
+                        keycode: _,
+                        scancode: Some(scancode),
+                        keymod: _,
+                        repeat: false,
+                    } => {
+                        key_event(sys_state, scancode, true);
+                    },
+
+                    sdl2::event::Event::KeyUp {
+                        timestamp: _,
+                        window_id: _,
+                        keycode: _,
+                        scancode: Some(scancode),
+                        keymod: _,
+                        repeat: _,
+                    } => {
+                        key_event(sys_state, scancode, false);
                     },
 
                     _ => {},

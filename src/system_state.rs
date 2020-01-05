@@ -1,5 +1,6 @@
 use crate::address_space::AddressSpace;
 use crate::io;
+use crate::io::keypad::KeypadState;
 use crate::io::lcd::DisplayState;
 use crate::io::sound::SoundState;
 use crate::io::timer::TimerState;
@@ -87,8 +88,10 @@ pub struct SystemState {
     pub cgb: bool,
     pub ints_enabled: bool,
     pub double_speed: bool,
+    pub realtime: bool,
 
     pub display: DisplayState,
+    pub keypad: KeypadState,
     pub sound: SoundState,
     pub timer: TimerState,
 }
@@ -104,13 +107,16 @@ impl SystemState {
             cgb: false,
             ints_enabled: true,
             double_speed: false,
+            realtime: true,
 
             display: DisplayState::new(&sdl),
+            keypad: KeypadState::new(),
             sound: SoundState::new(&sdl),
             timer: TimerState::new(),
         };
 
         DisplayState::init_system_state(&mut state);
+        KeypadState::init_system_state(&mut state);
         SoundState::init_system_state(&mut state);
         io::init_dma(&mut state);
 
@@ -126,7 +132,7 @@ impl SystemState {
             };
 
         io::lcd::add_cycles(self, dcycles);
-        self.sound.add_cycles(dcycles);
+        self.sound.add_cycles(dcycles, self.realtime);
         io::timer::add_cycles(self, count);
     }
 }
