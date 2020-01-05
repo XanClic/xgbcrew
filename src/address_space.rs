@@ -160,6 +160,16 @@ impl AddressSpace {
         }
     }
 
+    fn mprotect(&mut self, addr: usize, size: usize, prot: libc::c_int) {
+        let res = unsafe {
+            libc::mprotect(addr as *mut libc::c_void, size, prot)
+        };
+
+        if res != 0 {
+            panic!("mprotect() failed");
+        }
+    }
+
     fn map_rom0(&mut self) {
         if self.rom0_mapped.is_some() {
             return;
@@ -206,16 +216,24 @@ impl AddressSpace {
         {
             return;
         }
-        if self.extram_mapped.is_some() {
-            self.munmap(AS_BASE + 0xa000, 0x2000);
-        }
-        if let Some(bank) = self.extram_bank {
-            let prot = if self.extram_rw {
+
+        let prot =
+            if self.extram_rw {
                 libc::PROT_READ | libc::PROT_WRITE
             } else {
                 libc::PROT_READ
             };
 
+        if self.extram_mapped == self.extram_bank {
+            self.mprotect(AS_BASE + 0xa000, 0x2000, prot);
+            self.extram_mapped_rw = self.extram_rw;
+            return;
+        }
+
+        if self.extram_mapped.is_some() {
+            self.munmap(AS_BASE + 0xa000, 0x2000);
+        }
+        if let Some(bank) = self.extram_bank {
             if bank == -1isize as usize {
                 self.mmap(AS_BASE + 0xa000, -1, 0, 0x2000,
                           prot,
