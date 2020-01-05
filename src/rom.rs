@@ -301,107 +301,101 @@ impl Cartridge {
             0x6000 => {
                 /* TODO: Stricter latching handling */
                 if val != 0 {
-                    if c.rtc_latched.is_some() {
-                        c.rtc_latched = None;
-                    } else {
-                        c.rtc_latched = Some(SystemTime::now());
-                    }
+                    c.rtc_latched = Some(SystemTime::now());
                 }
             },
 
             0xa000 => {
-                if addr_space.extram_rw {
-                    let (mut tsecs, mut dc) = c.mbc3_time();
-                    let rtc = c.rtc.as_mut().unwrap();
-                    let mut halted = rtc.halted;
+                let (mut tsecs, mut dc) = c.mbc3_time();
+                let rtc = c.rtc.as_mut().unwrap();
+                let mut halted = rtc.halted;
 
-                    let secs = tsecs % 60;
-                    let mins = (tsecs / 60) % 60;
-                    let hours = (tsecs / 3600) % 24;
-                    let days = tsecs / 86400;
+                let secs = tsecs % 60;
+                let mins = (tsecs / 60) % 60;
+                let hours = (tsecs / 3600) % 24;
+                let days = tsecs / 86400;
 
-                    match c.mbc3_clock_sel {
-                        0x08 => {
-                            tsecs = val as u64 +
-                                    60 * (mins +
-                                          60 * (hours +
-                                                24 * days));
-                        },
+                match c.mbc3_clock_sel {
+                    0x08 => {
+                        tsecs = val as u64 +
+                                60 * (mins +
+                                      60 * (hours +
+                                            24 * days));
+                    },
 
-                        0x09 => {
-                            tsecs = secs +
-                                    60 * (val as u64 +
-                                          60 * (hours +
-                                                24 * days));
-                        },
+                    0x09 => {
+                        tsecs = secs +
+                                60 * (val as u64 +
+                                      60 * (hours +
+                                            24 * days));
+                    },
 
-                        0x0a => {
-                            tsecs = secs +
-                                    60 * (mins +
-                                          60 * (val as u64 +
-                                                24 * days));
-                        },
+                    0x0a => {
+                        tsecs = secs +
+                                60 * (mins +
+                                      60 * (val as u64 +
+                                            24 * days));
+                    },
 
-                        0x0b => {
-                            tsecs = secs +
-                                    60 * (mins +
-                                          60 * (hours +
-                                                24 * (val as u64 |
-                                                      (days & 0x100))));
-                        },
+                    0x0b => {
+                        tsecs = secs +
+                                60 * (mins +
+                                      60 * (hours +
+                                            24 * (val as u64 |
+                                                  (days & 0x100))));
+                    },
 
-                        0x0c => {
-                            tsecs = secs +
-                                    60 * (mins +
-                                          60 * (hours +
-                                                24 * ((days & 0xff) |
-                                                      ((val as u64 & 0x01)
-                                                       << 8))));
+                    0x0c => {
+                        tsecs = secs +
+                                60 * (mins +
+                                      60 * (hours +
+                                            24 * ((days & 0xff) |
+                                                  ((val as u64 & 0x01)
+                                                   << 8))));
 
-                            halted = val & (1 << 6) != 0;
-                            dc = val & (1 << 7) != 0;
-                        },
+                        halted = val & (1 << 6) != 0;
+                        dc = val & (1 << 7) != 0;
+                    },
 
-                        _ => unreachable!(),
-                    };
+                    _ => unreachable!(),
+                };
 
-                    tsecs %= 86400 * 512;
-                    if dc {
-                        tsecs += 86400 * 512;
-                    }
-
-                    rtc.set_at = SystemTime::now();
-
-                    rtc.secs = (tsecs % 60) as u8;
-                    rtc.mins = ((tsecs / 60) % 60) as u8;
-                    rtc.hours = ((tsecs / 3600) % 24) as u8;
-                    rtc.days = ((tsecs / 86400) & 0x3ff) as u16;
-                    rtc.halted = halted;
-
-                    let pos = c.extram_size * 8192;
-                    addr_space.extram_file.seek(SeekFrom::Start(pos as u64))
-                                          .unwrap();
-
-                    let raw_rtc_data = bincode::serialize(&rtc).unwrap();
-                    if addr_space.extram_file.write(&raw_rtc_data).unwrap() <
-                        raw_rtc_data.len()
-                    {
-                        panic!("Short write");
-                    }
-
-                    /* So we can do a memset */
-                    addr_space.extram_rw = true;
-                    addr_space.remap_extram();
-
-                    unsafe {
-                        libc::memset((AS_BASE + 0xa000) as *mut libc::c_void,
-                                     val as libc::c_int, 0x2000);
-                    }
-
-                    /* memset is done */
-                    addr_space.extram_rw = false;
-                    addr_space.remap_extram();
+                tsecs %= 86400 * 512;
+                if dc {
+                    tsecs += 86400 * 512;
                 }
+
+                rtc.set_at = SystemTime::now();
+
+                rtc.secs = (tsecs % 60) as u8;
+                rtc.mins = ((tsecs / 60) % 60) as u8;
+                rtc.hours = ((tsecs / 3600) % 24) as u8;
+                rtc.days = ((tsecs / 86400) & 0x3ff) as u16;
+                rtc.halted = halted;
+
+                let pos = c.extram_size * 8192;
+                addr_space.extram_file.seek(SeekFrom::Start(pos as u64))
+                                      .unwrap();
+
+                let raw_rtc_data = bincode::serialize(&rtc).unwrap();
+                if addr_space.extram_file.write(&raw_rtc_data).unwrap() <
+                    raw_rtc_data.len()
+                {
+                    panic!("Short write");
+                }
+
+                /* So we can do a memset */
+                addr_space.extram_rw = true;
+                addr_space.remap_extram();
+
+                unsafe {
+                    libc::memset((AS_BASE + 0xa000) as *mut libc::c_void,
+                                 val as libc::c_int, 0x2000);
+                }
+
+                /* memset is done */
+                addr_space.extram_rw = false;
+                addr_space.remap_extram();
             },
 
             _ => unreachable!(),
