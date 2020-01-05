@@ -215,7 +215,13 @@ impl Cartridge {
         let secs = if rtc.halted {
                 base
             } else {
-                base + lt.duration_since(rtc.set_at).unwrap().as_secs()
+                let s =
+                    match lt.duration_since(rtc.set_at) {
+                        Ok(x) => x.as_secs(),
+                        Err(_) => 0,
+                    };
+
+                base + s
             };
 
         if secs >= 86400 * 512 {
