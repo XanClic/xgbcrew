@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU8, Ordering};
 
-use crate::io::{io_get_reg, io_set_addr, io_set_reg};
+use crate::io::{io_get_addr, io_get_reg, io_set_addr, io_set_reg};
 use crate::system_state::{IOReg, SystemState};
 
 const FRAMES: usize = 256;
@@ -229,6 +229,150 @@ impl ToneSweep {
 }
 
 
+struct Wave {
+    channel: usize,
+    enabled: bool,
+    soft_stopped: bool,
+
+    nrx0: u8,
+    nrx1: u8,
+    nrx2: u8,
+    nrx3: u8,
+    nrx4: u8,
+
+    samples: [u8; 16],
+
+    next_vol: f32,
+    vol: f32,
+    next_sample_time: f32,
+    sample_time: f32,
+    sample_counter: f32,
+    sample_i: usize,
+
+    out_sample_count: usize,
+    out_samples_limited: bool,
+}
+
+impl Wave {
+    fn new(channel: usize) -> Self {
+        Self {
+            channel: channel,
+            enabled: false,
+            soft_stopped: false,
+
+            nrx0: 0x7f,
+            nrx1: 0xff,
+            nrx2: 0x9f,
+            nrx3: 0xbf,
+            nrx4: 0x00,
+
+            samples: [0u8; 16],
+
+            next_vol: 0.0,
+            vol: 0.0,
+            next_sample_time: 0.0,
+            sample_time: 0.0,
+            sample_counter: 0.0,
+            sample_i: 0,
+
+            out_sample_count: 0,
+            out_samples_limited: false,
+        }
+    }
+
+    fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+
+        if enabled {
+            io_set_reg(IOReg::NR52,
+                       io_get_reg(IOReg::NR52) | (1 << self.channel));
+        } else {
+            io_set_reg(IOReg::NR52,
+                       io_get_reg(IOReg::NR52) & !(1 << self.channel));
+        }
+    }
+
+    fn update_freq(&mut self) {
+        let freq_x = (self.nrx3 as u32) |
+                     ((self.nrx4 as u32 & 0x07) << 8);
+        self.next_sample_time = ((2048 - freq_x) as f32) / 65536.0 / 32.0;
+    }
+
+    fn update_len(&mut self) {
+        self.out_samples_limited = self.nrx4 & (1 << 6) != 0;
+        if self.out_samples_limited {
+            self.out_sample_count = ((256 - self.nrx1 as u32) as f32 *
+                                    (44100.0 / 256.0)) as usize;
+        }
+    }
+
+    fn update_vol(&mut self) {
+        self.next_vol =
+            match (self.nrx2 >> 5) & 0x03 {
+                0 => 0.0,
+                1 => 2.0,
+                2 => 1.0,
+                3 => 0.5,
+                _ => unreachable!(),
+            };
+    }
+
+    fn pull_regs(&mut self) {
+        if self.sample_i == 0 {
+            for i in 0..16 {
+                self.samples[i] = io_get_addr(0x30 + i as u16);
+            }
+            self.vol = self.next_vol;
+            self.sample_time = self.next_sample_time;
+        }
+    }
+
+    fn initialize(&mut self) {
+        self.update_len();
+        self.update_freq();
+        self.update_vol();
+
+        self.set_enabled(true);
+    }
+
+    fn get_sample(&mut self) -> f32 {
+        if !self.enabled {
+            return 0.0;
+        }
+
+        if self.soft_stopped && self.sample_i == 0 {
+            self.set_enabled(false);
+            return 0.0;
+        }
+
+        if self.out_samples_limited {
+            if self.out_sample_count == 0 {
+                if self.sample_i == 0 {
+                    self.set_enabled(false);
+                    return 0.0;
+                }
+            } else {
+                self.out_sample_count -= 1;
+            }
+        }
+
+        let sample = (self.samples[self.sample_i / 2]
+                      >> (4 - (self.sample_i % 2) * 4))
+                     & 0x0f;
+
+        self.sample_counter += 1.0 / 44100.0;
+        while self.sample_counter >= self.sample_time {
+            self.sample_i = (self.sample_i + 1) % 32;
+            self.sample_counter -= self.sample_time;
+
+            self.pull_regs();
+        }
+
+        sample as f32 * self.vol
+    }
+}
+
+
 struct Noise {
     channel: usize,
     enabled: bool,
@@ -395,7 +539,7 @@ impl Noise {
             self.output_counter -= self.shift_time;
         }
 
-        if self.lfsr & 1 == 0 { -self.vol } else { self.vol }
+        if self.lfsr & 1 != 0 { self.vol } else { -self.vol }
     }
 }
 
@@ -404,7 +548,7 @@ pub struct SoundState {
     sdl_audio: sdl2::AudioSubsystem,
     adev: Option<sdl2::audio::AudioDevice<Output>>,
 
-    outbuf: Arc<Mutex<Vec<i8>>>,
+    outbuf: Arc<Mutex<Vec<f32>>>,
     outbuf_done: Arc<AtomicU8>,
 
     obuf_i: usize,
@@ -413,13 +557,17 @@ pub struct SoundState {
 
     ch1: ToneSweep,
     ch2: ToneSweep,
+    ch3: Wave,
     ch4: Noise,
+
+    ch3_l: bool,
+    ch3_r: bool,
 }
 
 impl SoundState {
     pub fn new(sdl: &sdl2::Sdl) -> Self {
-        let mut outbuf = Vec::<i8>::new();
-        outbuf.resize(FRAMES * 2, 0i8);
+        let mut outbuf = Vec::<f32>::new();
+        outbuf.resize(FRAMES * 2, 0.0);
 
         Self {
             sdl_audio: sdl.audio().unwrap(),
@@ -434,7 +582,11 @@ impl SoundState {
 
             ch1: ToneSweep::new(0),
             ch2: ToneSweep::new(1),
+            ch3: Wave::new(2),
             ch4: Noise::new(3),
+
+            ch3_l: false,
+            ch3_r: false,
         }
     }
 
@@ -463,6 +615,7 @@ impl SoundState {
         self.shared = SharedState::new();
         self.ch1 = ToneSweep::new(0);
         self.ch2 = ToneSweep::new(1);
+        self.ch3 = Wave::new(2);
         self.ch4 = Noise::new(3);
 
         self.outbuf_done.store(0, Ordering::Release);
@@ -484,10 +637,7 @@ impl SoundState {
             sys_state.sound.sdl_audio
                 .open_playback(None, &sound_spec,
                                |_| {
-                                   Output {
-                                       outbuf: obuf,
-                                       outbuf_done: obuf_done,
-                                   }
+                                   Output::new(obuf, obuf_done)
                                }).unwrap()
         );
 
@@ -512,6 +662,7 @@ impl SoundState {
 
             let ch1 = self.ch1.get_sample();
             let ch2 = self.ch2.get_sample();
+            let ch3 = self.ch3.get_sample();
             let ch4 = self.ch4.get_sample();
 
             let cm = self.shared.channel_mask;
@@ -519,30 +670,37 @@ impl SoundState {
                          if cm & (1 << 4) != 0 { ch1 } else { 0.0 });
             let ch2_f = (if cm & (1 << 1) != 0 { ch2 } else { 0.0 },
                          if cm & (1 << 5) != 0 { ch2 } else { 0.0 });
+            let ch3_f = (if self.ch3_l { ch3 } else { 0.0 },
+                         if self.ch3_r { ch3 } else { 0.0 });
             let ch4_f = (if cm & (1 << 3) != 0 { ch4 } else { 0.0 },
                          if cm & (1 << 7) != 0 { ch4 } else { 0.0 });
 
+            if self.ch3.sample_i == 0 {
+                self.ch3_l = cm & (1 << 2) != 0;
+                self.ch3_r = cm & (1 << 6) != 0;
+            }
+
             let mut cht_f = (
-                    (ch1_f.0 + ch2_f.0 + ch4_f.0) *
-                        self.shared.lvol * (127.0 / (15.0 * 7.0)),
-                    (ch1_f.1 + ch2_f.1 + ch4_f.0) *
-                        self.shared.rvol * (127.0 / (15.0 * 7.0))
+                    (ch1_f.0 + ch2_f.0 + ch3_f.0 + ch4_f.0) *
+                        self.shared.lvol * (1.0 / (15.0 * 7.0 * 8.0)),
+                    (ch1_f.1 + ch2_f.1 + ch3_f.1 + ch4_f.1) *
+                        self.shared.rvol * (1.0 / (15.0 * 7.0 * 8.0))
                 );
 
-            if cht_f.0 > 127.0 {
-                cht_f.0 = 127.0;
-            } else if cht_f.0 < -127.0 {
-                cht_f.0 = -127.0;
+            if cht_f.0 > 1.0 {
+                cht_f.0 = 1.0;
+            } else if cht_f.0 < -1.0 {
+                cht_f.0 = -1.0;
             }
 
-            if cht_f.1 > 127.0 {
-                cht_f.1 = 127.0;
-            } else if cht_f.1 < -127.0 {
-                cht_f.1 = -127.0;
+            if cht_f.1 > 1.0 {
+                cht_f.1 = 1.0;
+            } else if cht_f.1 < -1.0 {
+                cht_f.1 = -1.0;
             }
 
-            out[self.obuf_i + 0] = cht_f.0 as i8;
-            out[self.obuf_i + 1] = cht_f.1 as i8;
+            out[self.obuf_i + 0] = cht_f.0;
+            out[self.obuf_i + 1] = cht_f.1;
 
             self.obuf_i_cycles -= 2097152.0 / 44100.0;
             self.obuf_i += 2;
@@ -552,14 +710,23 @@ impl SoundState {
 
 
 struct Output {
-    outbuf: Arc<Mutex<Vec<i8>>>,
+    outbuf: Arc<Mutex<Vec<f32>>>,
     outbuf_done: Arc<AtomicU8>,
 }
 
-impl sdl2::audio::AudioCallback for Output {
-    type Channel = i8;
+impl Output {
+    fn new(outbuf: Arc<Mutex<Vec<f32>>>, outbuf_done: Arc<AtomicU8>) -> Self {
+        Self {
+            outbuf: outbuf,
+            outbuf_done: outbuf_done,
+        }
+    }
+}
 
-    fn callback(&mut self, out: &mut [i8]) {
+impl sdl2::audio::AudioCallback for Output {
+    type Channel = f32;
+
+    fn callback(&mut self, out: &mut [f32]) {
         let inp_guard = self.outbuf.lock().unwrap();
         let inp = &*inp_guard;
 
@@ -639,6 +806,55 @@ pub fn sound_write(sys_state: &mut SystemState, addr: u16, mut val: u8)
             val &= 0x40;
         },
 
+        0x1a => {
+            s.ch3.nrx0 = val;
+
+            if val & (1 << 7) == 0 {
+                if s.ch3.enabled {
+                    s.ch3.soft_stopped = true;
+                }
+            } else if s.ch3.soft_stopped {
+                s.ch3.soft_stopped = false;
+                s.ch3.set_enabled(true);
+            }
+
+            val &= 0x80;
+        },
+
+        0x1b => {
+            s.ch3.nrx1 = val;
+            s.ch3.update_len();
+        },
+
+        0x1c => {
+            s.ch3.nrx2 = val;
+            s.ch3.update_vol();
+            val &= 0x60;
+        },
+
+        0x1d => {
+            s.ch3.nrx3 = val;
+            s.ch3.update_freq();
+            val = 0;
+        },
+
+        0x1e => {
+            s.ch3.nrx4 = val;
+            s.ch3.update_freq();
+
+            s.ch3.out_samples_limited = val & (1 << 6) != 0;
+
+            if val & 0x80 != 0 {
+                s.ch3.initialize();
+            }
+
+            val &= 0x40;
+        },
+
+        0x1f => {
+            val = 0;
+        },
+
         0x20 => {
             s.ch4.nrx1 = val;
             val = 0;
@@ -678,7 +894,9 @@ pub fn sound_write(sys_state: &mut SystemState, addr: u16, mut val: u8)
             }
         },
 
-        _ => (),
+        0x30..=0x3f => (),
+
+        _ => unreachable!(),
     }
 
     io_set_addr(addr, val);
