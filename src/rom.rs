@@ -198,7 +198,11 @@ impl Cartridge {
     }
 
     fn mbc3_time(&self) -> (u64, bool) {
-        let rtc = self.rtc.as_ref().unwrap();
+        let rtc =
+            match self.rtc.as_ref() {
+                Some(x) => x,
+                None => return (0, false),
+            };
 
         let lt = match self.rtc_latched {
             Some(x) => x,
@@ -306,6 +310,10 @@ impl Cartridge {
             },
 
             0xa000 => {
+                if c.rtc.is_none() {
+                    return;
+                }
+
                 let (mut tsecs, mut dc) = c.mbc3_time();
                 let rtc = c.rtc.as_mut().unwrap();
                 let mut halted = rtc.halted;
