@@ -1,10 +1,14 @@
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::mpsc::{channel, Sender, Receiver};
 
 use crate::io::{io_get_addr, io_get_reg, io_set_addr, io_set_reg};
 use crate::system_state::{IOReg, SystemState};
 
-const FRAMES: usize = 256;
+/*
+ * We do real-time synchronization through audio, so we need at least
+ * one sync point per frame
+ */
+const FRAMES: usize = 44100 / 60;
 
 
 struct SharedState {
@@ -549,7 +553,8 @@ pub struct SoundState {
     adev: Option<sdl2::audio::AudioDevice<Output>>,
 
     outbuf: Arc<Mutex<Vec<f32>>>,
-    outbuf_done: Arc<AtomicU8>,
+    outbuf_done: Receiver<()>,
+    outbuf_done_handout: Option<Sender<()>>,
 
     obuf_i: usize,
     obuf_i_cycles: f32,
@@ -569,12 +574,15 @@ impl SoundState {
         let mut outbuf = Vec::<f32>::new();
         outbuf.resize(FRAMES * 2, 0.0);
 
+        let (snd, rcv) = channel();
+
         Self {
             sdl_audio: sdl.audio().unwrap(),
             adev: None,
 
             outbuf: Arc::new(Mutex::new(outbuf)),
-            outbuf_done: Arc::new(AtomicU8::new(1)),
+            outbuf_done: rcv,
+            outbuf_done_handout: Some(snd),
 
             obuf_i: 0,
             obuf_i_cycles: 0.0,
@@ -617,8 +625,6 @@ impl SoundState {
         self.ch2 = ToneSweep::new(1);
         self.ch3 = Wave::new(2);
         self.ch4 = Noise::new(3);
-
-        self.outbuf_done.store(0, Ordering::Release);
     }
 
     pub fn init_system_state(sys_state: &mut SystemState) {
@@ -631,7 +637,7 @@ impl SoundState {
         };
 
         let obuf = sys_state.sound.outbuf.clone();
-        let obuf_done = sys_state.sound.outbuf_done.clone();
+        let obuf_done = sys_state.sound.outbuf_done_handout.take().unwrap();
 
         sys_state.sound.adev = Some(
             sys_state.sound.sdl_audio
@@ -650,10 +656,7 @@ impl SoundState {
 
         while self.obuf_i_cycles >= (2097152.0 / 44100.0) {
             if self.obuf_i == FRAMES * 2 {
-                while self.outbuf_done.load(Ordering::Acquire) == 0 {
-                }
-
-                self.outbuf_done.store(0, Ordering::Release);
+                self.outbuf_done.recv().unwrap();
                 self.obuf_i = 0;
             }
 
@@ -711,11 +714,11 @@ impl SoundState {
 
 struct Output {
     outbuf: Arc<Mutex<Vec<f32>>>,
-    outbuf_done: Arc<AtomicU8>,
+    outbuf_done: Sender<()>,
 }
 
 impl Output {
-    fn new(outbuf: Arc<Mutex<Vec<f32>>>, outbuf_done: Arc<AtomicU8>) -> Self {
+    fn new(outbuf: Arc<Mutex<Vec<f32>>>, outbuf_done: Sender<()>) -> Self {
         Self {
             outbuf: outbuf,
             outbuf_done: outbuf_done,
@@ -734,7 +737,7 @@ impl sdl2::audio::AudioCallback for Output {
             out[i] = inp[i];
         }
 
-        self.outbuf_done.store(1, Ordering::Release);
+        self.outbuf_done.send(()).unwrap();
     }
 }
 
