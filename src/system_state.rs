@@ -130,6 +130,11 @@ pub struct SystemState {
     #[savestate(skip)]
     sound_postprocess: bool,
 
+    #[savestate(skip)]
+    pub emul_secs: f64,
+    #[savestate(skip)]
+    pub real_secs: f64,
+
     #[savestate(ref)]
     pub display: Box<DisplayState>,
     pub keypad: KeypadState,
@@ -240,8 +245,10 @@ impl System {
                 }
             }
 
-            UIAction::Quit =>
-                std::process::exit(0),
+            UIAction::Quit => {
+                self.sys_state.print_stat();
+                std::process::exit(0);
+            },
         }
     }
 
@@ -308,10 +315,13 @@ impl SystemState {
             sgb: params.sgb && !params.cgb,
             ints_enabled: true,
             double_speed: false,
-            realtime: true,
+            realtime: false,
             vblanked: false,
 
             sound_postprocess: false,
+
+            emul_secs: 0.0,
+            real_secs: 0.0,
 
             display: box DisplayState::new(),
             keypad: KeypadState::new(),
@@ -338,12 +348,21 @@ impl SystemState {
             };
 
         io::lcd::add_cycles(self, dcycles);
-        self.sound.add_cycles(&mut self.addr_space, dcycles, self.realtime);
+        self.sound.add_cycles(&mut self.addr_space, dcycles, self.realtime,
+                              &mut self.real_secs);
         io::timer::add_cycles(self, count);
 
         if let Some(serial) = self.serial.as_mut() {
             serial.add_cycles(&mut self.addr_space, dcycles);
         }
+
+        self.emul_secs += dcycles as f64 / 2097152.0;
+    }
+
+    pub fn print_stat(&self) {
+        println!("Emulated {} s in {} s ({}×)",
+                 self.emul_secs, self.real_secs,
+                 self.emul_secs / self.real_secs);
     }
 
     fn toggle_sound_postprocess(&mut self) {

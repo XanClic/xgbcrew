@@ -717,7 +717,7 @@ impl SoundState {
 
     /* @cycles must be in double-speed cycles */
     pub fn add_cycles(&mut self, addr_space: &mut AddressSpace,
-                      cycles: u32, realtime: bool)
+                      cycles: u32, realtime: bool, real_secs: &mut f64)
     {
         self.ibuf_i_cycles += cycles as f32;
 
@@ -788,7 +788,13 @@ impl SoundState {
                         if realtime {
                             self.outbuf_done.recv().unwrap()
                         } else {
-                            self.outbuf_done.try_recv().unwrap_or(0)
+                            match self.outbuf_done.try_recv() {
+                                Ok(x) => {
+                                    *real_secs += FRAMES as f64 / 44100.0;
+                                    x
+                                },
+                                Err(_) => 0,
+                            }
                         };
                 }
             }
