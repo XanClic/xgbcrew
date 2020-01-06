@@ -314,7 +314,7 @@ const IOW_HANDLERS: [fn(&mut SystemState, u16, u8); 256] = [
     iow_not_implemented,
     iow_not_implemented,
     iow_not_implemented,
-    iow_not_implemented,
+    iow_plain, /* ??? */
     iow_not_implemented,                /* 0x80 */
     iow_not_implemented,
     iow_not_implemented,
