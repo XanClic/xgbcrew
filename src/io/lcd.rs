@@ -1,21 +1,13 @@
 use crate::address_space::get_raw_read_addr;
 use crate::io::{hdma_copy_16b, io_get_reg, io_set_addr, io_set_reg, io_write};
 use crate::io::int::IRQ;
-use crate::io::keypad::key_event;
 use crate::system_state::{IOReg, SystemState};
 
 
 #[derive(SaveState)]
 pub struct DisplayState {
     #[savestate(skip)]
-    evt_pump: sdl2::EventPump,
-    #[savestate(skip)]
-    cvs: sdl2::render::Canvas<sdl2::video::Window>,
-
-    #[savestate(skip)]
-    lcd_txt: sdl2::render::Texture<'static>,
-    #[savestate(skip)]
-    lcd_pixels: [u32; 160 * 144],
+    pub lcd_pixels: [u32; 160 * 144],
 
     enabled: bool,
     wnd_tile_map: isize,
@@ -39,29 +31,8 @@ pub struct DisplayState {
 
 
 impl DisplayState {
-    pub fn new(sdl: &sdl2::Sdl) -> Self {
-        let vid = sdl.video().unwrap();
-        let evt_pump = sdl.event_pump().unwrap();
-
-        let wnd = vid.window("xgbcrew", 160, 144).opengl().resizable().build()
-                     .unwrap();
-        let cvs = wnd.into_canvas().accelerated().build().unwrap();
-
-        let pixel_fmt = sdl2::pixels::PixelFormatEnum::ARGB8888;
-        let access = sdl2::render::TextureAccess::Streaming;
-        let txtc = cvs.texture_creator();
-        let lcd_txt = unsafe {
-            /* F this */
-            std::mem::transmute::<sdl2::render::Texture,
-                                  sdl2::render::Texture<'static>>(
-                txtc.create_texture(pixel_fmt, access, 160, 144).unwrap()
-            )
-        };
-
+    pub fn new() -> Self {
         Self {
-            evt_pump: evt_pump,
-            cvs: cvs,
-            lcd_txt: lcd_txt,
             lcd_pixels: [0; 160 * 144],
 
             enabled: false,
@@ -91,16 +62,6 @@ impl DisplayState {
         io_write(sys_state, IOReg::BGP  as u16, 0xfc);
         io_write(sys_state, IOReg::OBP0 as u16, 0xff);
         io_write(sys_state, IOReg::OBP1 as u16, 0xff);
-    }
-
-    fn update(&mut self) {
-        let pixels8 = unsafe {
-            std::mem::transmute::<&[u32], &[u8]>(&self.lcd_pixels)
-        };
-
-        self.lcd_txt.update(None, pixels8, 160 * 4).unwrap();
-        self.cvs.copy(&self.lcd_txt, None, None).unwrap();
-        self.cvs.present();
     }
 }
 
@@ -441,39 +402,7 @@ fn stat_mode_transition(sys_state: &mut SystemState, ly: u8, from: u8, to: u8) {
             /* Entered VBlank */
             io_set_reg(IOReg::IF, io_get_reg(IOReg::IF) | (IRQ::VBlank as u8));
 
-            sys_state.display.update();
-
-            while let Some(evt) = sys_state.display.evt_pump.poll_event() {
-                match evt {
-                    sdl2::event::Event::Quit { timestamp: _ } => {
-                        std::process::exit(0);
-                    },
-
-                    sdl2::event::Event::KeyDown {
-                        timestamp: _,
-                        window_id: _,
-                        keycode: _,
-                        scancode: Some(scancode),
-                        keymod: _,
-                        repeat: false,
-                    } => {
-                        key_event(sys_state, scancode, true);
-                    },
-
-                    sdl2::event::Event::KeyUp {
-                        timestamp: _,
-                        window_id: _,
-                        keycode: _,
-                        scancode: Some(scancode),
-                        keymod: _,
-                        repeat: _,
-                    } => {
-                        key_event(sys_state, scancode, false);
-                    },
-
-                    _ => {},
-                }
-            }
+            sys_state.vblanked = true;
         }
     }
 

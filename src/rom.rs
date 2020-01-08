@@ -2,7 +2,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::time::SystemTime;
 
 use crate::address_space::{AddressSpace, AS_BASE};
-use crate::system_state::SystemState;
+use crate::system_state::SystemParams;
 
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -475,11 +475,11 @@ impl Cartridge {
 }
 
 
-pub fn load_rom(state: &mut SystemState) {
-    state.addr_space.rom_file.seek(SeekFrom::Start(0x100)).unwrap();
+pub fn load_rom(addr_space: &mut AddressSpace) -> SystemParams {
+    addr_space.rom_file.seek(SeekFrom::Start(0x100)).unwrap();
 
     let mut raw_rda: [u8; 0x50] = [0u8; 0x50];
-    if state.addr_space.rom_file.read(&mut raw_rda).unwrap() < 0x50 {
+    if addr_space.rom_file.read(&mut raw_rda).unwrap() < 0x50 {
         panic!("Short read");
     }
 
@@ -587,16 +587,15 @@ pub fn load_rom(state: &mut SystemState) {
         extram_len += rtc_data_length;
     }
 
-    state.addr_space.extram_file.set_len(extram_len as u64).unwrap();
+    addr_space.extram_file.set_len(extram_len as u64).unwrap();
 
     let rtc_data = if rtc {
             let pos = extram_size * 8192;
-            state.addr_space.extram_file.seek(SeekFrom::Start(pos as u64))
-                                        .unwrap();
+            addr_space.extram_file.seek(SeekFrom::Start(pos as u64)).unwrap();
 
             let mut raw_rtc_data = Vec::<u8>::new();
             raw_rtc_data.resize(rtc_data_length, 0u8);
-            if state.addr_space.extram_file.read(&mut raw_rtc_data).unwrap() <
+            if addr_space.extram_file.read(&mut raw_rtc_data).unwrap() <
                 rtc_data_length
             {
                 panic!("Short read");
@@ -607,9 +606,7 @@ pub fn load_rom(state: &mut SystemState) {
             None
         };
 
-    state.cgb = gbc_mode;
-
-    state.addr_space.cartridge = Cartridge {
+    addr_space.cartridge = Cartridge {
         mbc: mbc,
         extram: extram,
         rumble: rumble,
@@ -624,5 +621,9 @@ pub fn load_rom(state: &mut SystemState) {
         rtc_latched: None,
     };
 
-    Cartridge::init_map(&mut state.addr_space);
+    Cartridge::init_map(addr_space);
+
+    SystemParams {
+        cgb: gbc_mode,
+    }
 }

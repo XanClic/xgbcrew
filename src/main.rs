@@ -6,13 +6,15 @@ mod cpu;
 mod io;
 mod rom;
 mod system_state;
+mod ui;
 
 use std::env;
 use std::process::exit;
 use regex::Regex;
 
 use address_space::AddressSpace;
-use system_state::SystemState;
+use system_state::{System, SystemState};
+use ui::UI;
 
 
 fn main() {
@@ -34,14 +36,11 @@ fn main() {
         },
     };
 
-    let addr_space = AddressSpace::new(&rom_path, &ram_path);
-    let mut state = SystemState::new(addr_space);
+    let mut addr_space = AddressSpace::new(&rom_path, &ram_path);
+    let sys_params = rom::load_rom(&mut addr_space);
 
-    rom::load_rom(&mut state);
+    let system_state = SystemState::new(addr_space, sys_params);
+    let mut system = System::new(system_state, UI::new());
 
-    let mut system = state.into_system();
-
-    loop {
-        system.exec();
-    }
+    system.main_loop();
 }

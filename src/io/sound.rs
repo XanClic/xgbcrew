@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{channel, Sender, Receiver};
 
 use crate::io::{io_get_addr, io_get_reg, io_set_addr, io_set_reg};
-use crate::system_state::{IOReg, SystemState};
+use crate::system_state::{AudioOutputParams, IOReg, SystemState};
 
 /*
  * We do real-time synchronization through audio, so we need at least
@@ -554,10 +554,6 @@ impl Noise {
 
 #[derive(SaveState)]
 pub struct SoundState {
-    #[savestate(skip)]
-    sdl_audio: sdl2::AudioSubsystem,
-    #[savestate(skip)]
-    adev: Option<sdl2::audio::AudioDevice<Output>>,
 
     #[savestate(skip)]
     outbuf: Arc<Mutex<Vec<f32>>>,
@@ -580,16 +576,13 @@ pub struct SoundState {
 }
 
 impl SoundState {
-    pub fn new(sdl: &sdl2::Sdl) -> Self {
+    pub fn new() -> Self {
         let mut outbuf = Vec::<f32>::new();
         outbuf.resize(FRAMES * 2, 0.0);
 
         let (snd, rcv) = channel();
 
         Self {
-            sdl_audio: sdl.audio().unwrap(),
-            adev: None,
-
             outbuf: Arc::new(Mutex::new(outbuf)),
             outbuf_done: rcv,
             outbuf_done_handout: Some(snd),
@@ -637,27 +630,14 @@ impl SoundState {
         self.ch4 = Noise::new(3);
     }
 
-    pub fn init_system_state(sys_state: &mut SystemState) {
-        SoundState::reset_regs(&mut sys_state.sound);
+    pub fn get_audio_params(&mut self) -> AudioOutputParams {
+        AudioOutputParams {
+            freq: 44100,
+            channels: 2,
 
-        let sound_spec = sdl2::audio::AudioSpecDesired {
-            freq: Some(44100),
-            channels: Some(2),
-            samples: Some(FRAMES as u16),
-        };
-
-        let obuf = sys_state.sound.outbuf.clone();
-        let obuf_done = sys_state.sound.outbuf_done_handout.take().unwrap();
-
-        sys_state.sound.adev = Some(
-            sys_state.sound.sdl_audio
-                .open_playback(None, &sound_spec,
-                               |_| {
-                                   Output::new(obuf, obuf_done)
-                               }).unwrap()
-        );
-
-        sys_state.sound.adev.as_mut().unwrap().resume();
+            buf: self.outbuf.clone(),
+            buf_done: self.outbuf_done_handout.take().unwrap(),
+        }
     }
 
     /* @cycles must be in double-speed cycles */
@@ -722,36 +702,6 @@ impl SoundState {
             self.obuf_i_cycles -= 2097152.0 / 44100.0;
             self.obuf_i += 2;
         }
-    }
-}
-
-
-struct Output {
-    outbuf: Arc<Mutex<Vec<f32>>>,
-    outbuf_done: Sender<()>,
-}
-
-impl Output {
-    fn new(outbuf: Arc<Mutex<Vec<f32>>>, outbuf_done: Sender<()>) -> Self {
-        Self {
-            outbuf: outbuf,
-            outbuf_done: outbuf_done,
-        }
-    }
-}
-
-impl sdl2::audio::AudioCallback for Output {
-    type Channel = f32;
-
-    fn callback(&mut self, out: &mut [f32]) {
-        let inp_guard = self.outbuf.lock().unwrap();
-        let inp = &*inp_guard;
-
-        for i in 0..out.len() {
-            out[i] = inp[i];
-        }
-
-        self.outbuf_done.send(()).unwrap();
     }
 }
 

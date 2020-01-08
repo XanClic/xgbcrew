@@ -1,8 +1,6 @@
-use sdl2::keyboard::Scancode;
-
 use crate::io::{io_get_reg, io_set_reg};
 use crate::io::int::IRQ;
-use crate::system_state::{IOReg, SystemState};
+use crate::system_state::{IOReg, SystemState, UIScancode};
 
 
 #[derive(Serialize, Deserialize)]
@@ -34,18 +32,18 @@ impl KeypadState {
         io_set_reg(IOReg::P1, p14_15 | !(nibbles.0 | nibbles.1));
     }
 
-    fn key_event(&mut self, key: Scancode, down: bool) {
+    pub fn key_event(&mut self, key: UIScancode, down: bool) {
         let line =
             match key {
-                Scancode::Right     => (1 << 0),
-                Scancode::Left      => (1 << 1),
-                Scancode::Up        => (1 << 2),
-                Scancode::Down      => (1 << 3),
+                UIScancode::Right     => (1 << 0),
+                UIScancode::Left      => (1 << 1),
+                UIScancode::Up        => (1 << 2),
+                UIScancode::Down      => (1 << 3),
 
-                Scancode::X         => (1 << 4),
-                Scancode::Z         => (1 << 5),
-                Scancode::Backspace => (1 << 6),
-                Scancode::Return    => (1 << 7),
+                UIScancode::X         => (1 << 4),
+                UIScancode::Z         => (1 << 5),
+                UIScancode::Backspace => (1 << 6),
+                UIScancode::Return    => (1 << 7),
 
                 _ => return
             };
@@ -75,13 +73,4 @@ pub fn p1_write(sys_state: &mut SystemState, _: u16, val: u8)
         (if val & 0x20 == 0 { 0xf0 } else { 0x00 });
 
     kp.update_p1();
-}
-
-
-pub fn key_event(sys_state: &mut SystemState, key: Scancode, down: bool) {
-    if key == Scancode::Space {
-        sys_state.realtime = !down;
-    } else {
-        sys_state.keypad.key_event(key, down);
-    }
 }

@@ -1,3 +1,6 @@
+use std::sync::{Arc, Mutex};
+use std::sync::mpsc::Sender;
+
 use crate::address_space::AddressSpace;
 use crate::cpu::CPU;
 use crate::io;
@@ -5,6 +8,7 @@ use crate::io::keypad::KeypadState;
 use crate::io::lcd::DisplayState;
 use crate::io::sound::SoundState;
 use crate::io::timer::TimerState;
+use crate::ui::UI;
 
 #[allow(dead_code)]
 pub enum IOReg {
@@ -83,10 +87,44 @@ pub enum IOReg {
     IE      = 0xff,
 }
 
+pub enum UIScancode {
+    X,
+    Z,
+
+    Space,
+    Return,
+    Backspace,
+
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+pub enum UIEvent {
+    Quit,
+    Key { key: UIScancode, down: bool },
+}
+
+pub struct SystemParams {
+    pub cgb: bool,
+}
+
+pub struct AudioOutputParams {
+    pub freq: usize,
+    pub channels: usize,
+
+    pub buf: Arc<Mutex<Vec<f32>>>,
+    pub buf_done: Sender<()>,
+}
+
 #[derive(SaveState)]
 pub struct System {
     pub sys_state: SystemState,
     pub cpu: CPU,
+
+    #[savestate(skip)]
+    pub ui: UI,
 }
 
 #[derive(SaveState)]
@@ -97,6 +135,7 @@ pub struct SystemState {
     pub ints_enabled: bool,
     pub double_speed: bool,
     pub realtime: bool,
+    pub vblanked: bool,
 
     pub display: DisplayState,
     pub keypad: KeypadState,
@@ -106,46 +145,77 @@ pub struct SystemState {
 
 
 impl System {
+    pub fn new(mut sys_state: SystemState, mut ui: UI) -> Self {
+        let cpu = CPU::new(sys_state.cgb);
+
+        ui.setup_audio(sys_state.sound.get_audio_params());
+
+        Self {
+            sys_state: sys_state,
+            cpu: cpu,
+
+            ui: ui,
+        }
+    }
+
     pub fn exec(&mut self) {
         let cycles = self.cpu.exec(&mut self.sys_state);
         self.sys_state.add_cycles(cycles);
+
+        if self.sys_state.vblanked {
+            self.sys_state.vblanked = false;
+
+            self.ui.present_frame(&self.sys_state.display.lcd_pixels);
+
+            while let Some(evt) = self.ui.poll_event() {
+                match evt {
+                    UIEvent::Quit => {
+                        std::process::exit(0);
+                    },
+
+                    UIEvent::Key { key, down } => {
+                        match key {
+                            UIScancode::Space => {
+                                self.sys_state.realtime = !down;
+                            },
+
+                            _ => self.sys_state.keypad.key_event(key, down),
+                        }
+                    },
+                }
+            }
+        }
+    }
+
+    pub fn main_loop(&mut self) {
+        loop {
+            self.exec();
+        }
     }
 }
 
 impl SystemState {
-    pub fn new(addr_space: AddressSpace) -> Self {
-        /* FIXME: Should be done outside of everything */
-        let sdl = sdl2::init().unwrap();
-
+    pub fn new(addr_space: AddressSpace, params: SystemParams) -> Self {
         let mut state = Self {
             addr_space: addr_space,
 
-            cgb: false,
+            cgb: params.cgb,
             ints_enabled: true,
             double_speed: false,
             realtime: true,
+            vblanked: false,
 
-            display: DisplayState::new(&sdl),
+            display: DisplayState::new(),
             keypad: KeypadState::new(),
-            sound: SoundState::new(&sdl),
+            sound: SoundState::new(),
             timer: TimerState::new(),
         };
 
         DisplayState::init_system_state(&mut state);
         KeypadState::init_system_state(&mut state);
-        SoundState::init_system_state(&mut state);
         io::init_dma(&mut state);
 
         state
-    }
-
-    pub fn into_system(self) -> System {
-        let cpu = CPU::new(self.cgb);
-
-        System {
-            sys_state: self,
-            cpu: cpu,
-        }
     }
 
     pub fn add_cycles(&mut self, count: u32) {
