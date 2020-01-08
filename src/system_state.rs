@@ -1,3 +1,4 @@
+use savestate::SaveState;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 
@@ -91,6 +92,10 @@ pub enum UIScancode {
     X,
     Z,
 
+    Shift,
+    Alt,
+    Control,
+
     Space,
     Return,
     Backspace,
@@ -99,6 +104,19 @@ pub enum UIScancode {
     Right,
     Up,
     Down,
+
+    F1,
+    F2,
+    F3,
+    F4,
+    F5,
+    F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
 }
 
 pub enum UIEvent {
@@ -118,6 +136,12 @@ pub struct AudioOutputParams {
     pub buf_done: Sender<()>,
 }
 
+struct KeyboardState {
+    shift: bool,
+    alt: bool,
+    control: bool,
+}
+
 #[derive(SaveState)]
 pub struct System {
     pub sys_state: SystemState,
@@ -125,6 +149,11 @@ pub struct System {
 
     #[savestate(skip)]
     pub ui: UI,
+
+    #[savestate(skip)]
+    keyboard_state: KeyboardState,
+    #[savestate(skip)]
+    base_path: String,
 }
 
 #[derive(SaveState)]
@@ -134,6 +163,7 @@ pub struct SystemState {
     pub cgb: bool,
     pub ints_enabled: bool,
     pub double_speed: bool,
+    #[savestate(skip)]
     pub realtime: bool,
     pub vblanked: bool,
 
@@ -145,7 +175,9 @@ pub struct SystemState {
 
 
 impl System {
-    pub fn new(mut sys_state: SystemState, mut ui: UI) -> Self {
+    pub fn new(mut sys_state: SystemState, mut ui: UI, base_path: String)
+        -> Self
+    {
         let cpu = CPU::new(sys_state.cgb);
 
         ui.setup_audio(sys_state.sound.get_audio_params());
@@ -155,6 +187,45 @@ impl System {
             cpu: cpu,
 
             ui: ui,
+
+            keyboard_state: KeyboardState {
+                shift: false,
+                alt: false,
+                control: false,
+            },
+            base_path: base_path,
+        }
+    }
+
+    fn fkey(&mut self, key: usize, down: bool) {
+        if !down || self.keyboard_state.alt || self.keyboard_state.control {
+            return;
+        }
+
+        let fname = format!("{}.ss{}", self.base_path, key);
+
+        let mut opts = std::fs::OpenOptions::new();
+        if self.keyboard_state.shift {
+            opts.write(true).create(true);
+        } else {
+            opts.read(true);
+        }
+
+        let mut file =
+            match opts.open(&fname) {
+                Ok(f) => f,
+                Err(e) => {
+                    println!("Failed to open {}: {}", fname, e);
+                    return;
+                }
+            };
+
+        if self.keyboard_state.shift {
+            self.export(&mut file);
+            println!("Exported save state {} to {}", key + 1, fname);
+        } else {
+            self.import(&mut file);
+            println!("Imported save state {} from {}", key + 1, fname);
         }
     }
 
@@ -178,6 +249,31 @@ impl System {
                             UIScancode::Space => {
                                 self.sys_state.realtime = !down;
                             },
+
+                            UIScancode::Shift => {
+                                self.keyboard_state.shift = down;
+                            },
+
+                            UIScancode::Alt => {
+                                self.keyboard_state.alt = down;
+                            },
+
+                            UIScancode::Control => {
+                                self.keyboard_state.control = down;
+                            },
+
+                            UIScancode::F1  => self.fkey(0, down),
+                            UIScancode::F2  => self.fkey(1, down),
+                            UIScancode::F3  => self.fkey(2, down),
+                            UIScancode::F4  => self.fkey(3, down),
+                            UIScancode::F5  => self.fkey(4, down),
+                            UIScancode::F6  => self.fkey(5, down),
+                            UIScancode::F7  => self.fkey(6, down),
+                            UIScancode::F8  => self.fkey(7, down),
+                            UIScancode::F9  => self.fkey(8, down),
+                            UIScancode::F10 => self.fkey(9, down),
+                            UIScancode::F11 => self.fkey(10, down),
+                            UIScancode::F12 => self.fkey(11, down),
 
                             _ => self.sys_state.keypad.key_event(key, down),
                         }

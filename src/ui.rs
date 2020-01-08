@@ -92,6 +92,13 @@ impl UI {
                 Scancode::X         => UIScancode::X,
                 Scancode::Z         => UIScancode::Z,
 
+                Scancode::LShift    => UIScancode::Shift,
+                Scancode::RShift    => UIScancode::Shift,
+                Scancode::LAlt      => UIScancode::Alt,
+                Scancode::RAlt      => UIScancode::Alt,
+                Scancode::LCtrl     => UIScancode::Control,
+                Scancode::RCtrl     => UIScancode::Control,
+
                 Scancode::Space     => UIScancode::Space,
                 Scancode::Return    => UIScancode::Return,
                 Scancode::Backspace => UIScancode::Backspace,
@@ -100,6 +107,19 @@ impl UI {
                 Scancode::Right     => UIScancode::Right,
                 Scancode::Up        => UIScancode::Up,
                 Scancode::Down      => UIScancode::Down,
+
+                Scancode::F1        => UIScancode::F1,
+                Scancode::F2        => UIScancode::F2,
+                Scancode::F3        => UIScancode::F3,
+                Scancode::F4        => UIScancode::F4,
+                Scancode::F5        => UIScancode::F5,
+                Scancode::F6        => UIScancode::F6,
+                Scancode::F7        => UIScancode::F7,
+                Scancode::F8        => UIScancode::F8,
+                Scancode::F9        => UIScancode::F9,
+                Scancode::F10       => UIScancode::F10,
+                Scancode::F11       => UIScancode::F11,
+                Scancode::F12       => UIScancode::F12,
 
                 _ => { return None; },
             };

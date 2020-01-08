@@ -26,21 +26,20 @@ fn main() {
     }
 
     let rom_path = argv[1].clone();
+
+    let regex = Regex::new(r"\.?[^./]*$").unwrap();
+    let base_path = String::from(regex.replace(&rom_path, ""));
+
     let ram_path = match argv.get(2) {
         Some(p) => p.clone(),
-        None => {
-            let regex = Regex::new(r"\.?[^./]*$").unwrap();
-            let replaced = regex.replace(&rom_path, ".sav");
-
-            String::from(replaced)
-        },
+        None => format!("{}.sav", base_path),
     };
 
     let mut addr_space = AddressSpace::new(&rom_path, &ram_path);
     let sys_params = rom::load_rom(&mut addr_space);
 
     let system_state = SystemState::new(addr_space, sys_params);
-    let mut system = System::new(system_state, UI::new());
+    let mut system = System::new(system_state, UI::new(), base_path);
 
     system.main_loop();
 }

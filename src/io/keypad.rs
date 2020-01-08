@@ -1,9 +1,10 @@
+use savestate::SaveState;
+
 use crate::io::{io_get_reg, io_set_reg};
 use crate::io::int::IRQ;
 use crate::system_state::{IOReg, SystemState, UIScancode};
 
 
-#[derive(Serialize, Deserialize)]
 pub struct KeypadState {
     all_lines: u8,
     mask: u8,
@@ -59,6 +60,19 @@ impl KeypadState {
             self.all_lines &= !line;
         }
 
+        self.update_p1();
+    }
+}
+
+impl SaveState for KeypadState {
+    fn export<T: std::io::Write>(&self, stream: &mut T) {
+        /* Do not export keyboard state, because reloading does not
+         * change what the user is pressing */
+        SaveState::export(&self.mask, stream);
+    }
+
+    fn import<T: std::io::Read>(&mut self, stream: &mut T) {
+        SaveState::import(&mut self.mask, stream);
         self.update_p1();
     }
 }
