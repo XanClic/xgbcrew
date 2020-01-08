@@ -5,11 +5,16 @@ use crate::io::keypad::key_event;
 use crate::system_state::{IOReg, SystemState};
 
 
+#[derive(SaveState)]
 pub struct DisplayState {
+    #[savestate(skip)]
     evt_pump: sdl2::EventPump,
+    #[savestate(skip)]
     cvs: sdl2::render::Canvas<sdl2::video::Window>,
 
+    #[savestate(skip)]
     lcd_txt: sdl2::render::Texture<'static>,
+    #[savestate(skip)]
     lcd_pixels: [u32; 160 * 144],
 
     enabled: bool,

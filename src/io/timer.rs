@@ -3,6 +3,7 @@ use crate::io::int::IRQ;
 use crate::system_state::{IOReg, SystemState};
 
 
+#[derive(Serialize, Deserialize)]
 pub struct TimerState {
     div_counter: u32,
 

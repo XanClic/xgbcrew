@@ -5,17 +5,19 @@ use crate::io::{io_get_reg, io_set_reg};
 use crate::system_state::{IOReg, SystemState};
 
 
-#[derive(Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub enum IIOperation {
     EnableInterrupts,
     DisableInterrupts,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
 struct InternalInstruction {
     delay: i8,
     op: IIOperation,
 }
 
+#[derive(SaveState)]
 pub struct CPU {
     /* f, a, c, b, e, d, l, h */
     /* b, c, d, e, h, l, (none), a */

@@ -5,6 +5,7 @@ use crate::io::int::IRQ;
 use crate::system_state::{IOReg, SystemState};
 
 
+#[derive(Serialize, Deserialize)]
 pub struct KeypadState {
     all_lines: u8,
     mask: u8,

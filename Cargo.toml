@@ -14,3 +14,5 @@ bincode = "1.2"
 libc = "0.2.0"
 paste = "0.1"
 sdl2 = "0.32.2"
+savestate = { path = "helpers/savestate", version = "0" }
+savestate_derive = { path = "helpers/savestate_derive", version = "0" }

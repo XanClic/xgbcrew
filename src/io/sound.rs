@@ -11,6 +11,7 @@ use crate::system_state::{IOReg, SystemState};
 const FRAMES: usize = 44100 / 60;
 
 
+#[derive(Serialize, Deserialize, Clone, Copy)]
 struct SharedState {
     lvol: f32,
     rvol: f32,
@@ -27,6 +28,7 @@ impl SharedState {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy)]
 struct ToneSweep {
     channel: usize,
     time: f32,
@@ -233,6 +235,7 @@ impl ToneSweep {
 }
 
 
+#[derive(Serialize, Deserialize, Clone, Copy)]
 struct Wave {
     channel: usize,
     enabled: bool,
@@ -377,6 +380,7 @@ impl Wave {
 }
 
 
+#[derive(Serialize, Deserialize, Clone, Copy)]
 struct Noise {
     channel: usize,
     enabled: bool,
@@ -548,12 +552,18 @@ impl Noise {
 }
 
 
+#[derive(SaveState)]
 pub struct SoundState {
+    #[savestate(skip)]
     sdl_audio: sdl2::AudioSubsystem,
+    #[savestate(skip)]
     adev: Option<sdl2::audio::AudioDevice<Output>>,
 
+    #[savestate(skip)]
     outbuf: Arc<Mutex<Vec<f32>>>,
+    #[savestate(skip)]
     outbuf_done: Receiver<()>,
+    #[savestate(skip)]
     outbuf_done_handout: Option<Sender<()>>,
 
     obuf_i: usize,

@@ -2,6 +2,7 @@ use std::fs;
 use std::os::unix::io::{AsRawFd, RawFd};
 
 use crate::rom::Cartridge;
+use savestate::SaveState;
 
 
 pub const AS_BASE: usize = 0x100000000usize;
@@ -396,6 +397,26 @@ impl AddressSpace {
     pub fn extram_write(&mut self, addr: u16, val: u8) {
         Cartridge::cart_write(self, addr, val);
     }
+
+    fn export_shm<T: std::io::Write>(fd: RawFd, size: usize, stream: &mut T) {
+        let mapping = Self::mmap(0, fd, 0, size, libc::PROT_READ,
+                                 libc::MAP_SHARED, false) as *const u8;
+        let slice = unsafe {
+            std::slice::from_raw_parts(mapping, size)
+        };
+        stream.write_all(&slice).unwrap();
+        Self::munmap(mapping as usize, size);
+    }
+
+    fn import_shm<T: std::io::Read>(fd: RawFd, size: usize, stream: &mut T) {
+        let mapping = Self::mmap(0, fd, 0, size, libc::PROT_WRITE,
+                                 libc::MAP_SHARED, false) as *mut u8;
+        let mut slice = unsafe {
+            std::slice::from_raw_parts_mut(mapping, size)
+        };
+        stream.read_exact(&mut slice).unwrap();
+        Self::munmap(mapping as usize, size);
+    }
 }
 
 
@@ -417,5 +438,54 @@ pub fn get_raw_read_addr(ptr: u16) -> usize {
         mem_addr + 0x1000
     } else {
         panic!("get_raw_read_addr() does not work for MMIO")
+    }
+}
+
+
+impl SaveState for AddressSpace {
+    fn export<T: std::io::Write>(&self, stream: &mut T) {
+        SaveState::export(&self.cartridge, stream);
+
+        let extram_size = self.cartridge.extram_size * 0x2000;
+
+        Self::export_shm(self.wram_shm.unwrap(), 0x8000, stream);
+        Self::export_shm(self.hram_shm.unwrap(), 0x1000, stream);
+        Self::export_shm(self.extram_file.as_raw_fd(), extram_size, stream);
+
+        let vram_slice = unsafe {
+            std::slice::from_raw_parts(self.full_vram, 0x4000)
+        };
+
+        stream.write_all(&vram_slice).unwrap();
+
+        SaveState::export(self.romn_mapped.as_ref().unwrap(), stream);
+        SaveState::export(self.vram_mapped.as_ref().unwrap(), stream);
+        SaveState::export(&self.extram_mapped, stream);
+        SaveState::export(&self.extram_mapped_rw, stream);
+        SaveState::export(self.wramn_mapped.as_ref().unwrap(), stream);
+    }
+
+    fn import<T: std::io::Read>(&mut self, stream: &mut T) {
+        SaveState::import(&mut self.cartridge, stream);
+
+        let extram_size = self.cartridge.extram_size * 0x2000;
+
+        Self::import_shm(self.wram_shm.unwrap(), 0x8000, stream);
+        Self::import_shm(self.hram_shm.unwrap(), 0x1000, stream);
+        Self::import_shm(self.extram_file.as_raw_fd(), extram_size, stream);
+
+        let mut vram_slice = unsafe {
+            std::slice::from_raw_parts_mut(self.full_vram, 0x4000)
+        };
+
+        stream.read_exact(&mut vram_slice).unwrap();
+
+        SaveState::import(&mut self.rom_bank, stream);
+        SaveState::import(&mut self.vram_bank, stream);
+        SaveState::import(&mut self.extram_bank, stream);
+        SaveState::import(&mut self.extram_rw, stream);
+        SaveState::import(&mut self.wram_bank, stream);
+
+        self.map();
     }
 }

@@ -1,4 +1,5 @@
 #[macro_use] extern crate serde_derive;
+#[macro_use] extern crate savestate_derive;
 
 mod address_space;
 mod cpu;

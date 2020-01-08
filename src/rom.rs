@@ -25,7 +25,7 @@ struct RomDataArea {
     checksum: u16,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
 struct RamRTCData {
     set_at: SystemTime,
 
@@ -45,13 +45,19 @@ enum MbcType {
     MMM01,
 }
 
+#[derive(SaveState)]
 pub struct Cartridge {
+    #[savestate(skip)]
     mbc: MbcType,
+    #[savestate(skip)]
     extram: bool,
+    #[savestate(skip)]
     rumble: bool,
 
-    rom_size: usize,
-    extram_size: usize,
+    #[savestate(skip)]
+    pub rom_size: usize,
+    #[savestate(skip)]
+    pub extram_size: usize,
 
     mbc1_ram_banking: bool,
     mbc3_hidden_ram_rw: bool,

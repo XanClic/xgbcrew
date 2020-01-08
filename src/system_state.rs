@@ -83,11 +83,13 @@ pub enum IOReg {
     IE      = 0xff,
 }
 
+#[derive(SaveState)]
 pub struct System {
     pub sys_state: SystemState,
     pub cpu: CPU,
 }
 
+#[derive(SaveState)]
 pub struct SystemState {
     pub addr_space: AddressSpace,
 
