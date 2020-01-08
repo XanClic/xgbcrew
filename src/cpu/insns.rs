@@ -5,7 +5,7 @@ use crate::{mem, regs, regs8, regs16, regs16_split, flags, single_flag_mask};
 use crate::address_space::{AS_BASE, U8Split};
 use crate::cpu::{CPU, IIOperation};
 use crate::io::{io_get_reg, io_read, io_write};
-use crate::system_state::IOReg;
+use crate::system_state::{IOReg, SystemState};
 
 
 /* Maps the opcode-encoded register to the index in CPU.regs8 */
@@ -20,45 +20,47 @@ pub fn cpu_panic(cpu: &CPU, msg: &str) {
 }
 
 #[allow(dead_code)]
-pub fn cpu_debug(cpu: &CPU, msg: &str) {
+pub fn cpu_debug(cpu: &CPU, sys_state: &SystemState, msg: &str) {
     println!("{}PC={:04x} AF={:04x} BC={:04x} DE={:04x} HL={:04x} SP={:04x} [{}]",
              msg,
              regs![cpu.pc], regs![cpu.af], regs![cpu.bc], regs![cpu.de],
              regs![cpu.hl], regs![cpu.sp],
-             cpu.sys_state.borrow().addr_space.rom_bank);
+             sys_state.addr_space.rom_bank);
 }
 
 
-fn n8(cpu: &mut CPU) -> u8 {
-    let val = mem![cpu; u8:regs![cpu.pc]];
+fn n8(cpu: &mut CPU, sys_state: &mut SystemState) -> u8 {
+    let val = mem![sys_state; u8:regs![cpu.pc]];
     regs![regs![cpu.pc].wrapping_add(1u16) => cpu.pc];
     val
 }
 
-fn n16(cpu: &mut CPU) -> u16 {
-    let val = mem![cpu; u16:regs![cpu.pc]];
+fn n16(cpu: &mut CPU, sys_state: &mut SystemState) -> u16 {
+    let val = mem![sys_state; u16:regs![cpu.pc]];
     regs![regs![cpu.pc].wrapping_add(2u16) => cpu.pc];
     val
 }
 
 
-pub fn exec(cpu: &mut CPU) {
-    //cpu_debug(cpu, "");
-    let basic_opcode = n8(cpu) as usize;
-    INSN_HANDLERS[basic_opcode](cpu);
+pub fn exec(cpu: &mut CPU, sys_state: &mut SystemState) -> u32 {
+    //cpu_debug(cpu, sys_state, "");
+    let basic_opcode = n8(cpu, sys_state) as usize;
 
-    cpu.add_cycles(INSN_CYCLES[basic_opcode] as u32);
+    if basic_opcode == 0xcb {
+        prefix0xcb(cpu, sys_state)
+    } else {
+        INSN_HANDLERS[basic_opcode](cpu, sys_state);
+        INSN_CYCLES[basic_opcode] as u32
+    }
 }
 
-fn prefix0x10(cpu: &mut CPU) {
-    let sub_op = n8(cpu);
+fn prefix0x10(cpu: &mut CPU, sys_state: &mut SystemState) {
+    let sub_op = n8(cpu, sys_state);
 
     if sub_op != 0x00u8 {
         cpu_panic(cpu,
                   format!("Unknown opcode 0x10 0x{:02x}", sub_op).as_str());
     }
-
-    let mut sys_state = cpu.sys_state.borrow_mut();
 
     /* STOP */
     if io_get_reg(IOReg::KEY1) & 0x01 == 0 {
@@ -71,35 +73,35 @@ fn prefix0x10(cpu: &mut CPU) {
 }
 
 macro_rules! acc_op_r8 {
-    [$cpu:ident.$r:expr] => (
+    [$cpu:ident/$ss:ident.$r:expr] => (
         if $r != 6 {
             $cpu.regs8[REG_MAPPING[$r]]
         } else {
-            mem![$cpu; u8:regs![$cpu.hl]]
+            mem![$ss; u8:regs![$cpu.hl]]
         }
     );
 
-    [$v:expr => $cpu:ident.$r:expr] => (
+    [$v:expr => $cpu:ident/$ss:ident.$r:expr] => (
         if $r != 6 {
             $cpu.regs8[REG_MAPPING[$r]] = $v
         } else {
-            mem![$cpu; $v => u8:regs![$cpu.hl]]
+            mem![$ss; $v => u8:regs![$cpu.hl]]
         }
     );
 }
 
-fn prefix0xcb(cpu: &mut CPU) {
-    let prefixed_opcode = n8(cpu) as usize;
+fn prefix0xcb(cpu: &mut CPU, sys_state: &mut SystemState) -> u32 {
+    let prefixed_opcode = n8(cpu, sys_state) as usize;
 
     if prefixed_opcode < 0x40 {
-        INSN_CB_HANDLERS[prefixed_opcode](cpu);
+        INSN_CB_HANDLERS[prefixed_opcode](cpu, sys_state);
     } else {
         let r = prefixed_opcode & 0x07;
         let mask = 1u8 << ((prefixed_opcode & 0x38) >> 3);
 
         match prefixed_opcode & 0xc0 {
             0x40 /* BIT */ => {
-                let rv = acc_op_r8![cpu.r];
+                let rv = acc_op_r8![cpu/sys_state.r];
 
                 flags! { cpu;
                     zf: rv & mask == 0,
@@ -109,85 +111,87 @@ fn prefix0xcb(cpu: &mut CPU) {
             },
 
             0x80 /* RES */ => {
-                acc_op_r8![acc_op_r8![cpu.r] & !mask => cpu.r];
+                let res = acc_op_r8![cpu/sys_state.r] & !mask;
+                acc_op_r8![res => cpu/sys_state.r];
             },
 
             0xc0 /* SET */ => {
-                acc_op_r8![acc_op_r8![cpu.r] | mask => cpu.r];
+                let res = acc_op_r8![cpu/sys_state.r] | mask;
+                acc_op_r8![res => cpu/sys_state.r];
             },
 
             _ => unreachable!(),
         };
     }
 
-    cpu.add_cycles(INSN_CB_CYCLES[prefixed_opcode] as u32);
+    INSN_CB_CYCLES[prefixed_opcode] as u32
 }
 
 
 macro_rules! quasi_r8s {
-    ($cpu:ident, n8) => (
-        n8($cpu)
+    ($cpu:ident/$sys_state:ident, n8) => (
+        n8($cpu, $sys_state)
     );
 
-    ($cpu:ident, _bc) => (
-        mem![$cpu; u8:regs![$cpu.bc]]
+    ($cpu:ident/$sys_state:ident, _bc) => (
+        mem![$sys_state; u8:regs![$cpu.bc]]
     );
 
-    ($cpu:ident, _de) => (
-        mem![$cpu; u8:regs![$cpu.de]]
+    ($cpu:ident/$sys_state:ident, _de) => (
+        mem![$sys_state; u8:regs![$cpu.de]]
     );
 
-    ($cpu:ident, _hl) => (
-        mem![$cpu; u8:regs![$cpu.hl]]
+    ($cpu:ident/$sys_state:ident, _hl) => (
+        mem![$sys_state; u8:regs![$cpu.hl]]
     );
 
-    ($cpu:ident, _ffn8) => ({
-        let n = n8($cpu);
-        mem![$cpu; read u8:0xff00u16 + (n as u16)]
+    ($cpu:ident/$sys_state:ident, _ffn8) => ({
+        let n = n8($cpu, $sys_state);
+        mem![$sys_state; read u8:0xff00u16 + (n as u16)]
     });
 
-    ($cpu:ident, _ffc) => (
-        mem![$cpu; read u8:0xff00u16 + (regs![$cpu.c] as u16)]
+    ($cpu:ident/$sys_state:ident, _ffc) => (
+        mem![$sys_state; read u8:0xff00u16 + (regs![$cpu.c] as u16)]
     );
 
-    ($cpu:ident, _n16) => ({
-        let n = n16($cpu);
-        mem![$cpu; u8:n]
+    ($cpu:ident/$sys_state:ident, _n16) => ({
+        let n = n16($cpu, $sys_state);
+        mem![$sys_state; u8:n]
     });
 
-    ($cpu:ident, $r:ident) => (
+    ($cpu:ident/$sys_state:ident, $r:ident) => (
         regs![$cpu.$r]
     );
 }
 
 macro_rules! quasi_r8d {
-    ($cpu:ident, _ffn8, $v:expr) => ({
-        let n = n8($cpu);
-        mem![$cpu; $v => u8:(0xff00u16 + (n as u16))]
+    ($cpu:ident/$sys_state:ident, _ffn8, $v:expr) => ({
+        let n = n8($cpu, $sys_state);
+        mem![$sys_state; $v => u8:(0xff00u16 + (n as u16))]
     });
 
-    ($cpu:ident, _bc, $v:expr) => (
-        mem![$cpu; $v => u8:regs![$cpu.bc]]
+    ($cpu:ident/$sys_state:ident, _bc, $v:expr) => (
+        mem![$sys_state; $v => u8:regs![$cpu.bc]]
     );
 
-    ($cpu:ident, _de, $v:expr) => (
-        mem![$cpu; $v => u8:regs![$cpu.de]]
+    ($cpu:ident/$sys_state:ident, _de, $v:expr) => (
+        mem![$sys_state; $v => u8:regs![$cpu.de]]
     );
 
-    ($cpu:ident, _hl, $v:expr) => (
-        mem![$cpu; $v => u8:regs![$cpu.hl]]
+    ($cpu:ident/$sys_state:ident, _hl, $v:expr) => (
+        mem![$sys_state; $v => u8:regs![$cpu.hl]]
     );
 
-    ($cpu:ident, _ffc, $v:expr) => (
-        mem![$cpu; $v => u8:(0xff00u16 + (regs![$cpu.c] as u16))]
+    ($cpu:ident/$sys_state:ident, _ffc, $v:expr) => (
+        mem![$sys_state; $v => u8:(0xff00u16 + (regs![$cpu.c] as u16))]
     );
 
-    ($cpu:ident, _n16, $v:expr) => ({
-        let n = n16($cpu);
-        mem![$cpu; $v => u8:n]
+    ($cpu:ident/$sys_state:ident, _n16, $v:expr) => ({
+        let n = n16($cpu, $sys_state);
+        mem![$sys_state; $v => u8:n]
     });
 
-    ($cpu:ident, $r:ident, $v:expr) => (
+    ($cpu:ident/$sys_state:ident, $r:ident, $v:expr) => (
         regs![$v => $cpu.$r]
     );
 }
@@ -195,9 +199,10 @@ macro_rules! quasi_r8d {
 macro_rules! ld_r8_r8 {
     ($rd:ident, $rs:ident) => {
         paste::item! {
-            fn [<ld_ $rd _ $rs>](cpu: &mut CPU) {
-                let val = quasi_r8s!(cpu, $rs);
-                quasi_r8d!(cpu, $rd, val);
+            #[allow(unused_variables)]
+            fn [<ld_ $rd _ $rs>](cpu: &mut CPU, sys_state: &mut SystemState) {
+                let val = quasi_r8s!(cpu/sys_state, $rs);
+                quasi_r8d!(cpu/sys_state, $rd, val);
             }
         }
     };
@@ -206,8 +211,8 @@ macro_rules! ld_r8_r8 {
 macro_rules! ld_r16_n16 {
     ($r:ident) => {
         paste::item! {
-            fn [<ld_ $r _n16>](cpu: &mut CPU) {
-                regs![n16(cpu) => cpu.$r];
+            fn [<ld_ $r _n16>](cpu: &mut CPU, sys_state: &mut SystemState) {
+                regs![n16(cpu, sys_state) => cpu.$r];
             }
         }
     };
@@ -215,9 +220,11 @@ macro_rules! ld_r16_n16 {
 
 macro_rules! inc_r8 {
     ($r:ident) => {
-        paste::item! { fn [<inc_ $r>](cpu: &mut CPU) {
-                let res = quasi_r8s!(cpu, $r).wrapping_add(1u8);
-                quasi_r8d!(cpu, $r, res);
+        paste::item! {
+            #[allow(unused_variables)]
+            fn [<inc_ $r>](cpu: &mut CPU, sys_state: &mut SystemState) {
+                let res = quasi_r8s!(cpu/sys_state, $r).wrapping_add(1u8);
+                quasi_r8d!(cpu/sys_state, $r, res);
 
                 flags! { cpu;
                     zf: res == 0,
@@ -232,9 +239,10 @@ macro_rules! inc_r8 {
 macro_rules! dec_r8 {
     ($r:ident) => {
         paste::item! {
-            fn [<dec_ $r>](cpu: &mut CPU) {
-                let res = quasi_r8s!(cpu, $r).wrapping_sub(1u8);
-                quasi_r8d!(cpu, $r, res);
+            #[allow(unused_variables)]
+            fn [<dec_ $r>](cpu: &mut CPU, sys_state: &mut SystemState) {
+                let res = quasi_r8s!(cpu/sys_state, $r).wrapping_sub(1u8);
+                quasi_r8d!(cpu/sys_state, $r, res);
 
                 flags! { cpu;
                     zf: res == 0,
@@ -249,9 +257,10 @@ macro_rules! dec_r8 {
 macro_rules! add_a_r8 {
     ($r:ident) => {
         paste::item! {
-            fn [<add_a_ $r>](cpu: &mut CPU) {
+            #[allow(unused_variables)]
+            fn [<add_a_ $r>](cpu: &mut CPU, sys_state: &mut SystemState) {
                 let a = regs![cpu.a];
-                let r8 = quasi_r8s!(cpu, $r);
+                let r8 = quasi_r8s!(cpu/sys_state, $r);
                 let (res, cf) = a.overflowing_add(r8);
 
                 regs![res => cpu.a];
@@ -270,9 +279,10 @@ macro_rules! add_a_r8 {
 macro_rules! adc_a_r8 {
     ($r:ident) => {
         paste::item! {
-            fn [<adc_a_ $r>](cpu: &mut CPU) {
+            #[allow(unused_variables)]
+            fn [<adc_a_ $r>](cpu: &mut CPU, sys_state: &mut SystemState) {
                 let a = regs![cpu.a];
-                let r8 = quasi_r8s!(cpu, $r);
+                let r8 = quasi_r8s!(cpu/sys_state, $r);
                 let res = (a as u32) + (r8 as u32) + (flags![cpu.cf] as u32);
                 let res8 = res as u8;
 
@@ -292,9 +302,10 @@ macro_rules! adc_a_r8 {
 macro_rules! sub_a_r8 {
     ($r:ident) => {
         paste::item! {
-            fn [<sub_a_ $r>](cpu: &mut CPU) {
+            #[allow(unused_variables)]
+            fn [<sub_a_ $r>](cpu: &mut CPU, sys_state: &mut SystemState) {
                 let a = regs![cpu.a];
-                let r8 = quasi_r8s!(cpu, $r);
+                let r8 = quasi_r8s!(cpu/sys_state, $r);
                 let (res, cf) = a.overflowing_sub(r8);
 
                 regs![res => cpu.a];
@@ -313,9 +324,10 @@ macro_rules! sub_a_r8 {
 macro_rules! sbc_a_r8 {
     ($r:ident) => {
         paste::item! {
-            fn [<sbc_a_ $r>](cpu: &mut CPU) {
+            #[allow(unused_variables)]
+            fn [<sbc_a_ $r>](cpu: &mut CPU, sys_state: &mut SystemState) {
                 let a = regs![cpu.a];
-                let r8 = quasi_r8s!(cpu, $r);
+                let r8 = quasi_r8s!(cpu/sys_state, $r);
                 let res = (a as u32).wrapping_sub((r8 as u32) +
                                                   (flags![cpu.cf] as u32));
                 let res8 = res as u8;
@@ -336,8 +348,9 @@ macro_rules! sbc_a_r8 {
 macro_rules! and_a_r8 {
     ($r:ident) => {
         paste::item! {
-            fn [<and_a_ $r>](cpu: &mut CPU) {
-                let res = regs![cpu.a] & quasi_r8s!(cpu, $r);
+            #[allow(unused_variables)]
+            fn [<and_a_ $r>](cpu: &mut CPU, sys_state: &mut SystemState) {
+                let res = regs![cpu.a] & quasi_r8s!(cpu/sys_state, $r);
                 regs![res => cpu.a];
 
                 flags! { cpu;
@@ -354,8 +367,9 @@ macro_rules! and_a_r8 {
 macro_rules! xor_a_r8 {
     ($r:ident) => {
         paste::item! {
-            fn [<xor_a_ $r>](cpu: &mut CPU) {
-                let res = regs![cpu.a] ^ quasi_r8s!(cpu, $r);
+            #[allow(unused_variables)]
+            fn [<xor_a_ $r>](cpu: &mut CPU, sys_state: &mut SystemState) {
+                let res = regs![cpu.a] ^ quasi_r8s!(cpu/sys_state, $r);
                 regs![res => cpu.a];
 
                 flags! { cpu;
@@ -372,8 +386,9 @@ macro_rules! xor_a_r8 {
 macro_rules! or_a_r8 {
     ($r:ident) => {
         paste::item! {
-            fn [<or_a_ $r>](cpu: &mut CPU) {
-                let res = regs![cpu.a] | quasi_r8s!(cpu, $r);
+            #[allow(unused_variables)]
+            fn [<or_a_ $r>](cpu: &mut CPU, sys_state: &mut SystemState) {
+                let res = regs![cpu.a] | quasi_r8s!(cpu/sys_state, $r);
                 regs![res => cpu.a];
 
                 flags! { cpu;
@@ -390,9 +405,10 @@ macro_rules! or_a_r8 {
 macro_rules! cp_a_r8 {
     ($r:ident) => {
         paste::item! {
-            fn [<cp_a_ $r>](cpu: &mut CPU) {
+            #[allow(unused_variables)]
+            fn [<cp_a_ $r>](cpu: &mut CPU, sys_state: &mut SystemState) {
                 let a = regs![cpu.a];
-                let r8 = quasi_r8s!(cpu, $r);
+                let r8 = quasi_r8s!(cpu/sys_state, $r);
                 let (res, cf) = a.overflowing_sub(r8);
 
                 flags! { cpu;
@@ -427,10 +443,11 @@ macro_rules! shift8_cf {
 
 macro_rules! rotate8 {
     ($name: ident, $r:ident, $dir:ident, $carry:ident, $shorthand:ident) => {
-        fn $name(cpu: &mut CPU) {
-            let src = quasi_r8s!(cpu, $r);
+        #[allow(unused_variables)]
+        fn $name(cpu: &mut CPU, sys_state: &mut SystemState) {
+            let src = quasi_r8s!(cpu/sys_state, $r);
             let res = rotate8_result!(cpu, src, $dir, $carry);
-            quasi_r8d!(cpu, $r, res);
+            quasi_r8d!(cpu/sys_state, $r, res);
 
             flags! { cpu;
                 zf: rotate8_zf!(res, $shorthand),
@@ -465,10 +482,11 @@ macro_rules! shift8_result {
 macro_rules! shift8 {
     ($dir:ident, $type:ident, $r:ident) => {
         paste::item! {
-            fn [<s $dir $type _ $r>](cpu: &mut CPU) {
-                let src = quasi_r8s!(cpu, $r);
+            #[allow(unused_variables)]
+            fn [<s $dir $type _ $r>](cpu: &mut CPU, sys_state: &mut SystemState) {
+                let src = quasi_r8s!(cpu/sys_state, $r);
                 let res = shift8_result!(src, $dir, $type);
-                quasi_r8d!(cpu, $r, res);
+                quasi_r8d!(cpu/sys_state, $r, res);
 
                 flags! { cpu;
                     zf: res == 0,
@@ -484,10 +502,11 @@ macro_rules! shift8 {
 macro_rules! swap8 {
     ($r:ident) => {
         paste::item! {
-            fn [<swap_ $r>](cpu: &mut CPU) {
-                let src = quasi_r8s!(cpu, $r);
+            #[allow(unused_variables)]
+            fn [<swap_ $r>](cpu: &mut CPU, sys_state: &mut SystemState) {
+                let src = quasi_r8s!(cpu/sys_state, $r);
                 let res = (src >> 4) | (src << 4);
-                quasi_r8d!(cpu, $r, res);
+                quasi_r8d!(cpu/sys_state, $r, res);
 
                 flags! { cpu;
                     zf: res == 0,
@@ -503,7 +522,7 @@ macro_rules! swap8 {
 macro_rules! inc_r16 {
     ($r:ident) => {
         paste::item! {
-            fn [<inc_ $r>](cpu: &mut CPU) {
+            fn [<inc_ $r>](cpu: &mut CPU, _sys_state: &mut SystemState) {
                 regs![regs![cpu.$r].wrapping_add(1u16) => cpu.$r];
             }
         }
@@ -513,7 +532,7 @@ macro_rules! inc_r16 {
 macro_rules! dec_r16 {
     ($r:ident) => {
         paste::item! {
-            fn [<dec_ $r>](cpu: &mut CPU) {
+            fn [<dec_ $r>](cpu: &mut CPU, _sys_state: &mut SystemState) {
                 regs![regs![cpu.$r].wrapping_sub(1u16) => cpu.$r];
             }
         }
@@ -523,7 +542,7 @@ macro_rules! dec_r16 {
 macro_rules! add_hl_r16 {
     ($r:ident) => {
         paste::item! {
-            fn [<add_hl_ $r>](cpu: &mut CPU) {
+            fn [<add_hl_ $r>](cpu: &mut CPU, _sys_state: &mut SystemState) {
                 let hl = regs![cpu.hl];
                 let r16 = regs![cpu.$r];
                 let (res, cf) = hl.overflowing_add(r16);
@@ -542,9 +561,9 @@ macro_rules! add_hl_r16 {
 
 macro_rules! cond_op {
     ($name:ident, $cc:ident, $op:ident, $pc_skip:expr) => {
-        fn $name(cpu: &mut CPU) {
+        fn $name(cpu: &mut CPU, sys_state: &mut SystemState) {
             if flags![cpu.$cc] {
-                $op(cpu);
+                $op(cpu, sys_state);
             } else {
                 let ofs = $pc_skip;
                 regs![regs![cpu.pc].wrapping_add(ofs) => cpu.pc];
@@ -553,9 +572,9 @@ macro_rules! cond_op {
     };
 
     ($name:ident, !$cc:ident, $op:ident, $pc_skip:expr) => {
-        fn $name(cpu: &mut CPU) {
+        fn $name(cpu: &mut CPU, sys_state: &mut SystemState) {
             if !flags![cpu.$cc] {
-                $op(cpu);
+                $op(cpu, sys_state);
             } else {
                 let ofs = $pc_skip;
                 regs![regs![cpu.pc].wrapping_add(ofs) => cpu.pc];
@@ -567,8 +586,8 @@ macro_rules! cond_op {
 macro_rules! pop_r16 {
     ($r:ident) => {
         paste::item! {
-            fn [<pop_ $r>](cpu: &mut CPU) {
-                regs![pop(cpu) => cpu.$r];
+            fn [<pop_ $r>](cpu: &mut CPU, sys_state: &mut SystemState) {
+                regs![pop(cpu, sys_state) => cpu.$r];
             }
         }
     };
@@ -577,8 +596,8 @@ macro_rules! pop_r16 {
 macro_rules! push_r16 {
     ($r:ident) => {
         paste::item! {
-            fn [<push_ $r>](cpu: &mut CPU) {
-                push(cpu, regs![cpu.$r]);
+            fn [<push_ $r>](cpu: &mut CPU, sys_state: &mut SystemState) {
+                push(cpu, sys_state, regs![cpu.$r]);
             }
         }
     };
@@ -587,8 +606,8 @@ macro_rules! push_r16 {
 macro_rules! rstn {
     ($ofs:expr) => {
         paste::item! {
-            fn [<rst_ $ofs>](cpu: &mut CPU) {
-                push(cpu, regs![cpu.pc]);
+            fn [<rst_ $ofs>](cpu: &mut CPU, sys_state: &mut SystemState) {
+                push(cpu, sys_state, regs![cpu.pc]);
                 regs![$ofs => cpu.pc];
             }
         }
@@ -596,13 +615,13 @@ macro_rules! rstn {
 }
 
 
-fn not_implemented(cpu: &mut CPU) {
+fn not_implemented(cpu: &mut CPU, sys_state: &mut SystemState) {
     regs![regs![cpu.pc].wrapping_sub(1u16) => cpu.pc];
-    let insn = mem![cpu; u8:regs![cpu.pc]];
+    let insn = mem![sys_state; u8:regs![cpu.pc]];
     cpu_panic(cpu, format!("INSN 0x{:02x} not implemented", insn).as_str());
 }
 
-fn nop(_cpu: &mut CPU) {
+fn nop(_cpu: &mut CPU, _sys_state: &mut SystemState) {
 }
 
 ld_r8_r8!(a, a);
@@ -813,9 +832,9 @@ add_hl_r16!(de);
 add_hl_r16!(hl);
 add_hl_r16!(sp);
 
-fn add_sp_n8_helper(cpu: &mut CPU) -> u16 {
+fn add_sp_n8_helper(cpu: &mut CPU, sys_state: &mut SystemState) -> u16 {
     let sp = regs![cpu.sp];
-    let n8 = (n8(cpu) as i8) as u16;
+    let n8 = (n8(cpu, sys_state) as i8) as u16;
     let res = sp.wrapping_add(n8);
 
     flags! { cpu;
@@ -829,15 +848,15 @@ fn add_sp_n8_helper(cpu: &mut CPU) -> u16 {
     res
 }
 
-fn add_sp_n8(cpu: &mut CPU) {
-    regs![add_sp_n8_helper(cpu) => cpu.sp];
+fn add_sp_n8(cpu: &mut CPU, sys_state: &mut SystemState) {
+    regs![add_sp_n8_helper(cpu, sys_state) => cpu.sp];
 }
 
-fn ld_hl_spn8(cpu: &mut CPU) {
-    regs![add_sp_n8_helper(cpu) => cpu.hl];
+fn ld_hl_spn8(cpu: &mut CPU, sys_state: &mut SystemState) {
+    regs![add_sp_n8_helper(cpu, sys_state) => cpu.hl];
 }
 
-fn ld_sp_hl(cpu: &mut CPU) {
+fn ld_sp_hl(cpu: &mut CPU, _sys_state: &mut SystemState) {
     regs![regs![cpu.hl] => cpu.sp];
 }
 
@@ -918,36 +937,36 @@ swap8!(h);
 swap8!(l);
 swap8!(_hl);
 
-fn ld__n16_sp(cpu: &mut CPU) {
-    let n = n16(cpu);
-    mem![cpu; regs![cpu.sp] => u16:n];
+fn ld__n16_sp(cpu: &mut CPU, sys_state: &mut SystemState) {
+    let n = n16(cpu, sys_state);
+    mem![sys_state; regs![cpu.sp] => u16:n];
 }
 
-fn ldi_a__hl(cpu: &mut CPU) {
+fn ldi_a__hl(cpu: &mut CPU, sys_state: &mut SystemState) {
     let hl = regs![cpu.hl];
-    regs![mem![cpu; u8:hl] => cpu.a];
+    regs![mem![sys_state; u8:hl] => cpu.a];
     regs![hl.wrapping_add(1u16) => cpu.hl];
 }
 
-fn ldi__hl_a(cpu: &mut CPU) {
+fn ldi__hl_a(cpu: &mut CPU, sys_state: &mut SystemState) {
     let hl = regs![cpu.hl];
-    mem![cpu; regs![cpu.a] => u8:hl];
+    mem![sys_state; regs![cpu.a] => u8:hl];
     regs![hl.wrapping_add(1u16) => cpu.hl];
 }
 
-fn ldd_a__hl(cpu: &mut CPU) {
+fn ldd_a__hl(cpu: &mut CPU, sys_state: &mut SystemState) {
     let hl = regs![cpu.hl];
-    regs![mem![cpu; u8:hl] => cpu.a];
+    regs![mem![sys_state; u8:hl] => cpu.a];
     regs![hl.wrapping_sub(1u16) => cpu.hl];
 }
 
-fn ldd__hl_a(cpu: &mut CPU) {
+fn ldd__hl_a(cpu: &mut CPU, sys_state: &mut SystemState) {
     let hl = regs![cpu.hl];
-    mem![cpu; regs![cpu.a] => u8:hl];
+    mem![sys_state; regs![cpu.a] => u8:hl];
     regs![hl.wrapping_sub(1u16) => cpu.hl];
 }
 
-fn cpl(cpu: &mut CPU) {
+fn cpl(cpu: &mut CPU, _sys_state: &mut SystemState) {
     regs![!regs![cpu.a] => cpu.a];
 
     flags! { cpu;
@@ -956,7 +975,7 @@ fn cpl(cpu: &mut CPU) {
     };
 }
 
-fn daa(cpu: &mut CPU) {
+fn daa(cpu: &mut CPU, _sys_state: &mut SystemState) {
     let mut a = regs![cpu.a] as u32;
 
     if !flags![cpu.nf] {
@@ -989,7 +1008,7 @@ fn daa(cpu: &mut CPU) {
     regs![a as u8 => cpu.a];
 }
 
-fn ccf(cpu: &mut CPU) {
+fn ccf(cpu: &mut CPU, _sys_state: &mut SystemState) {
     flags! { cpu;
         nf: false,
         hf: false,
@@ -997,7 +1016,7 @@ fn ccf(cpu: &mut CPU) {
     };
 }
 
-fn scf(cpu: &mut CPU) {
+fn scf(cpu: &mut CPU, _sys_state: &mut SystemState) {
     flags! { cpu;
         nf: false,
         hf: false,
@@ -1005,8 +1024,8 @@ fn scf(cpu: &mut CPU) {
     };
 }
 
-fn jr_n8(cpu: &mut CPU) {
-    let ofs = n8(cpu) as i8;
+fn jr_n8(cpu: &mut CPU, sys_state: &mut SystemState) {
+    let ofs = n8(cpu, sys_state) as i8;
     regs![regs![cpu.pc].wrapping_add(ofs as u16) => cpu.pc];
 }
 
@@ -1015,8 +1034,8 @@ cond_op!(jrz_n8,   zf, jr_n8, 1);
 cond_op!(jrnc_n8, !cf, jr_n8, 1);
 cond_op!(jrc_n8,   cf, jr_n8, 1);
 
-fn jp_n16(cpu: &mut CPU) {
-    regs![n16(cpu) => cpu.pc];
+fn jp_n16(cpu: &mut CPU, sys_state: &mut SystemState) {
+    regs![n16(cpu, sys_state) => cpu.pc];
 }
 
 cond_op!(jpnz_n16, !zf, jp_n16, 2);
@@ -1024,32 +1043,32 @@ cond_op!(jpz_n16,   zf, jp_n16, 2);
 cond_op!(jpnc_n16, !cf, jp_n16, 2);
 cond_op!(jpc_n16,   cf, jp_n16, 2);
 
-fn jp__hl(cpu: &mut CPU) {
+fn jp__hl(cpu: &mut CPU, _sys_state: &mut SystemState) {
     /* Caution: Actually, this is more of a "JP HL" than "JP (HL)" */
     regs![regs![cpu.hl] => cpu.pc];
 }
 
-fn pop(cpu: &mut CPU) -> u16 {
+fn pop(cpu: &mut CPU, sys_state: &mut SystemState) -> u16 {
     let sp = regs![cpu.sp];
-    let val = mem![cpu; u16:sp];
+    let val = mem![sys_state; u16:sp];
     regs![sp.wrapping_add(2) => cpu.sp];
     val
 }
 
-pub fn push(cpu: &mut CPU, val: u16) {
+pub fn push(cpu: &mut CPU, sys_state: &mut SystemState, val: u16) {
     let sp = regs![cpu.sp].wrapping_sub(2);
     regs![sp => cpu.sp];
-    mem![cpu; val => u16:sp];
+    mem![sys_state; val => u16:sp];
 }
 
-fn call_n16(cpu: &mut CPU) {
-    let dst = n16(cpu);
-    push(cpu, regs![cpu.pc]);
+fn call_n16(cpu: &mut CPU, sys_state: &mut SystemState) {
+    let dst = n16(cpu, sys_state);
+    push(cpu, sys_state, regs![cpu.pc]);
     regs![dst => cpu.pc];
 }
 
-fn ret(cpu: &mut CPU) {
-    regs![pop(cpu) => cpu.pc];
+fn ret(cpu: &mut CPU, sys_state: &mut SystemState) {
+    regs![pop(cpu, sys_state) => cpu.pc];
 }
 
 cond_op!(callnz_n16, !zf, call_n16, 2);
@@ -1071,10 +1090,10 @@ cond_op!(retz,   zf, ret, 0);
 cond_op!(retnc, !cf, ret, 0);
 cond_op!(retc,   cf, ret, 0);
 
-fn reti(cpu: &mut CPU) {
-    ret(cpu);
+fn reti(cpu: &mut CPU, sys_state: &mut SystemState) {
+    ret(cpu, sys_state);
 
-    cpu.sys_state.borrow_mut().ints_enabled = true;
+    sys_state.ints_enabled = true;
 }
 
 pop_r16!(af);
@@ -1087,20 +1106,20 @@ push_r16!(bc);
 push_r16!(de);
 push_r16!(hl);
 
-fn ei(cpu: &mut CPU) {
+fn ei(cpu: &mut CPU, _sys_state: &mut SystemState) {
     cpu.inject_int_insn(1, IIOperation::EnableInterrupts);
 }
 
-fn di(cpu: &mut CPU) {
+fn di(cpu: &mut CPU, _sys_state: &mut SystemState) {
     cpu.inject_int_insn(1, IIOperation::DisableInterrupts);
 }
 
-fn halt(cpu: &mut CPU) {
+fn halt(cpu: &mut CPU, _sys_state: &mut SystemState) {
     cpu.halted = true;
 }
 
 
-const INSN_HANDLERS: [fn(&mut CPU); 256] = [
+const INSN_HANDLERS: [fn(&mut CPU, &mut SystemState); 256] = [
     nop,                /* 0x00 */
     ld_bc_n16,
     ld__bc_a,
@@ -1304,7 +1323,7 @@ const INSN_HANDLERS: [fn(&mut CPU); 256] = [
     retz,               /* 0xc8 */
     ret,
     jpz_n16,
-    prefix0xcb,
+    not_implemented, /* actually prefix0xcb */
     callz_n16,
     call_n16,
     adc_a_n8,
@@ -1359,7 +1378,7 @@ const INSN_HANDLERS: [fn(&mut CPU); 256] = [
     rst_0x38
 ];
 
-const INSN_CB_HANDLERS: [fn(&mut CPU); 64] = [
+const INSN_CB_HANDLERS: [fn(&mut CPU, &mut SystemState); 64] = [
     rlc_b,              /* 0x00 */
     rlc_c,
     rlc_d,

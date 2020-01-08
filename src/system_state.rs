@@ -1,4 +1,5 @@
 use crate::address_space::AddressSpace;
+use crate::cpu::CPU;
 use crate::io;
 use crate::io::keypad::KeypadState;
 use crate::io::lcd::DisplayState;
@@ -82,6 +83,11 @@ pub enum IOReg {
     IE      = 0xff,
 }
 
+pub struct System {
+    pub sys_state: SystemState,
+    pub cpu: CPU,
+}
+
 pub struct SystemState {
     pub addr_space: AddressSpace,
 
@@ -97,8 +103,16 @@ pub struct SystemState {
 }
 
 
+impl System {
+    pub fn exec(&mut self) {
+        let cycles = self.cpu.exec(&mut self.sys_state);
+        self.sys_state.add_cycles(cycles);
+    }
+}
+
 impl SystemState {
     pub fn new(addr_space: AddressSpace) -> Self {
+        /* FIXME: Should be done outside of everything */
         let sdl = sdl2::init().unwrap();
 
         let mut state = Self {
@@ -121,6 +135,15 @@ impl SystemState {
         io::init_dma(&mut state);
 
         state
+    }
+
+    pub fn into_system(self) -> System {
+        let cpu = CPU::new(self.cgb);
+
+        System {
+            sys_state: self,
+            cpu: cpu,
+        }
     }
 
     pub fn add_cycles(&mut self, count: u32) {

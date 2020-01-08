@@ -1,22 +1,21 @@
 #[macro_export]
 macro_rules! mem {
-    [$cpu:expr; read $t:ty:$a:expr] => (
-        mem!($cpu; $t; $a)
+    [$ss:expr; read $t:ty:$a:expr] => (
+        mem!($ss; $t; $a)
     );
 
-    [$cpu:expr; write $v:expr => $t:ty:$a:expr] => (
-        mem!($cpu; $t; $v => $a)
+    [$ss:expr; write $v:expr => $t:ty:$a:expr] => (
+        mem!($ss; $t; $v => $a)
     );
 
-    ($cpu:expr; $t:ty; $v:expr => $a:expr) => {
+    ($ss:expr; $t:ty; $v:expr => $a:expr) => {
         unsafe {
             let mem_addr = AS_BASE + ($a as usize);
 
             if $a < 0x8000u16 {
                 /* ROM */
                 let val = { $v };
-                let rom_write = |addr, x|
-                    $cpu.sys_state.borrow_mut().addr_space.rom_write(addr, x);
+                let rom_write = |addr, x| $ss.addr_space.rom_write(addr, x);
 
                 val.split_into_u8($a, rom_write);
             } else if $a < 0xe000u16 {
@@ -25,13 +24,12 @@ macro_rules! mem {
                     *(mem_addr as *mut $t) = $v;
                 } else {
                     /* External RAM */
-                    if $cpu.sys_state.borrow().addr_space.extram_rw {
+                    if $ss.addr_space.extram_rw {
                         *(mem_addr as *mut $t) = $v;
                     } else {
                         let val = { $v };
                         let extram_write = |addr, x|
-                            $cpu.sys_state.borrow_mut().addr_space
-                                .extram_write(addr, x);
+                            $ss.addr_space.extram_write(addr, x);
 
                         val.split_into_u8($a, extram_write);
                     }
@@ -43,8 +41,7 @@ macro_rules! mem {
                 if $a >= 0xff00u16 {
                     /* I/O */
                     let val = { $v };
-                    let iow = |addr, x|
-                        io_write(&mut *$cpu.sys_state.borrow_mut(), addr, x);
+                    let iow = |addr, x| io_write($ss, addr, x);
 
                     val.split_into_u8($a - 0xff00, iow);
                 } else {
@@ -61,11 +58,11 @@ macro_rules! mem {
         }
     };
 
-    [$cpu:expr; $v:expr => $t:ty:$a:expr] => (
-        mem!($cpu; $t; $v => $a)
+    [$ss:expr; $v:expr => $t:ty:$a:expr] => (
+        mem!($ss; $t; $v => $a)
     );
 
-    ($cpu:expr; $t:ty; $a:expr) => {
+    ($ss:expr; $t:ty; $a:expr) => {
         unsafe {
             let mem_addr = AS_BASE + ($a as usize);
 
@@ -78,8 +75,7 @@ macro_rules! mem {
             } else if $a >= 0xfea0u16 {
                 if $a >= 0xff00u16 {
                     /* I/O */
-                    let ior = |addr|
-                        io_read(&mut *$cpu.sys_state.borrow_mut(), addr);
+                    let ior = |addr| io_read($ss, addr);
                     <$t>::construct_from_u8($a - 0xff00, ior)
                 } else {
                     /* Illegal to access, mirror WRAM */
@@ -95,8 +91,8 @@ macro_rules! mem {
         }
     };
 
-    [$cpu:expr; $t:ty:$a:expr] => (
-        mem!($cpu; $t; $a)
+    [$ss:expr; $t:ty:$a:expr] => (
+        mem!($ss; $t; $a)
     );
 }
 

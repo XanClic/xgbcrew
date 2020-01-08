@@ -7,12 +7,10 @@ mod rom;
 mod system_state;
 
 use std::env;
-use std::cell::RefCell;
 use std::process::exit;
-use std::rc::Rc;
 use regex::Regex;
+
 use address_space::AddressSpace;
-use cpu::CPU;
 use system_state::SystemState;
 
 
@@ -40,8 +38,9 @@ fn main() {
 
     rom::load_rom(&mut state);
 
-    let common_state = Rc::new(RefCell::new(state));
+    let mut system = state.into_system();
 
-    let mut cpu = CPU::new(common_state.clone());
-    cpu.run();
+    loop {
+        system.exec();
+    }
 }

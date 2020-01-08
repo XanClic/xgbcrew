@@ -1,9 +1,6 @@
 mod insns;
 #[macro_use] mod macros;
 
-use std::cell::RefCell;
-use std::rc::Rc;
-
 use crate::io::{io_get_reg, io_set_reg};
 use crate::system_state::{IOReg, SystemState};
 
@@ -30,15 +27,11 @@ pub struct CPU {
 
     /* Should generally be small enough that a vec is best */
     internal_insns: Vec<InternalInstruction>,
-
-    sys_state: Rc<RefCell<SystemState>>,
 }
 
 impl CPU {
-    pub fn new(state: Rc<RefCell<SystemState>>)
-        -> Self
-    {
-        if state.borrow().cgb {
+    pub fn new(cgb: bool) -> Self {
+        if cgb {
             Self {
                 regs8: [0xb0u8, 0x11u8, 0x00u8, 0x00u8,
                         0x56u8, 0xffu8, 0x0du8, 0x00u8],
@@ -48,8 +41,6 @@ impl CPU {
                 halted: false,
 
                 internal_insns: Vec::<InternalInstruction>::new(),
-
-                sys_state: state,
             }
         } else {
             Self {
@@ -61,20 +52,18 @@ impl CPU {
                 halted: false,
 
                 internal_insns: Vec::<InternalInstruction>::new(),
-
-                sys_state: state,
             }
         }
     }
 
-    pub fn run(&mut self) {
-        loop {
+    pub fn exec(&mut self, sys_state: &mut SystemState) -> u32 {
+        let cycles =
             if self.halted {
-                self.add_cycles(1);
-
-                if !self.sys_state.borrow().ints_enabled {
+                if !sys_state.ints_enabled {
                     self.halted = false;
                 }
+
+                1
             } else {
                 if !self.internal_insns.is_empty() {
                     let mut exec_insns = Vec::<IIOperation>::new();
@@ -89,46 +78,43 @@ impl CPU {
                     if !exec_insns.is_empty() {
                         self.internal_insns.retain(|ref x| x.delay >= 0);
                         for ii in exec_insns {
-                            self.exec_int_insn(&ii);
+                            self.exec_int_insn(sys_state, &ii);
                         }
                     }
                 }
 
-                insns::exec(self);
-            }
+                insns::exec(self, sys_state)
+            };
 
-            {
-                let (ime, irqs) = {
-                    let ss = self.sys_state.borrow();
+        let (ime, irqs) = {
+            (sys_state.ints_enabled,
+             io_get_reg(IOReg::IF) & io_get_reg(IOReg::IE))
+        };
 
-                    (ss.ints_enabled,
-                     io_get_reg(IOReg::IF) & io_get_reg(IOReg::IE))
-                };
+        if ime {
+            if irqs != 0 {
+                let irq = irqs.trailing_zeros() as u16;
 
-                if ime {
-                    if irqs != 0 {
-                        let irq = irqs.trailing_zeros() as u16;
+                sys_state.ints_enabled = false;
+                { insns::push(self, sys_state, self.pc); }
+                self.pc = 0x40 + irq * 8;
 
-                        { self.sys_state.borrow_mut().ints_enabled = false; }
-                        { insns::push(self, self.pc); }
-                        self.pc = 0x40 + irq * 8;
-
-                        io_set_reg(IOReg::IF,
-                                   io_get_reg(IOReg::IF) & !(1 << irq));
-                    }
-                }
+                io_set_reg(IOReg::IF,
+                           io_get_reg(IOReg::IF) & !(1 << irq));
             }
         }
+
+        cycles
     }
 
-    fn exec_int_insn(&mut self, ii: &IIOperation) {
+    fn exec_int_insn(&mut self, sys_state: &mut SystemState, ii: &IIOperation) {
         match ii {
             IIOperation::EnableInterrupts => {
-                self.sys_state.borrow_mut().ints_enabled = true;
+                sys_state.ints_enabled = true;
             },
 
             IIOperation::DisableInterrupts => {
-                self.sys_state.borrow_mut().ints_enabled = false;
+                sys_state.ints_enabled = false;
             },
         }
     }
@@ -138,9 +124,5 @@ impl CPU {
             delay: delay,
             op: op,
         });
-    }
-
-    pub fn add_cycles(&mut self, count: u32) {
-        self.sys_state.borrow_mut().add_cycles(count);
     }
 }
