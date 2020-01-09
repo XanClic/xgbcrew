@@ -446,11 +446,13 @@ impl SaveState for AddressSpace {
     fn export<T: std::io::Write>(&self, stream: &mut T) {
         SaveState::export(&self.cartridge, stream);
 
-        let extram_size = self.cartridge.extram_size * 0x2000;
-
         Self::export_shm(self.wram_shm.unwrap(), 0x8000, stream);
         Self::export_shm(self.hram_shm.unwrap(), 0x1000, stream);
-        Self::export_shm(self.extram_file.as_raw_fd(), extram_size, stream);
+
+        let extram_size = self.cartridge.extram_size * 0x2000;
+        if extram_size != 0 {
+            Self::export_shm(self.extram_file.as_raw_fd(), extram_size, stream);
+        }
 
         let vram_slice = unsafe {
             std::slice::from_raw_parts(self.full_vram, 0x4000)
@@ -468,11 +470,13 @@ impl SaveState for AddressSpace {
     fn import<T: std::io::Read>(&mut self, stream: &mut T) {
         SaveState::import(&mut self.cartridge, stream);
 
-        let extram_size = self.cartridge.extram_size * 0x2000;
-
         Self::import_shm(self.wram_shm.unwrap(), 0x8000, stream);
         Self::import_shm(self.hram_shm.unwrap(), 0x1000, stream);
-        Self::import_shm(self.extram_file.as_raw_fd(), extram_size, stream);
+
+        let extram_size = self.cartridge.extram_size * 0x2000;
+        if extram_size != 0 {
+            Self::import_shm(self.extram_file.as_raw_fd(), extram_size, stream);
+        }
 
         let mut vram_slice = unsafe {
             std::slice::from_raw_parts_mut(self.full_vram, 0x4000)
