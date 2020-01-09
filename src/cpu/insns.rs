@@ -4,7 +4,7 @@
 use crate::{mem, regs, regs8, regs16, regs16_split, flags, single_flag_mask};
 use crate::address_space::{AS_BASE, U8Split};
 use crate::cpu::{CPU, IIOperation};
-use crate::io::{io_get_reg, io_read, io_write};
+use crate::io::{io_get_reg, io_read, io_set_reg, io_write};
 use crate::system_state::{IOReg, SystemState};
 
 
@@ -68,6 +68,11 @@ fn prefix0x10(cpu: &mut CPU, sys_state: &mut SystemState) {
     }
 
     sys_state.double_speed = !sys_state.double_speed;
+
+    io_set_reg(IOReg::KEY1,
+               (io_get_reg(IOReg::KEY1) & !0x80) |
+               (if sys_state.double_speed { 0x80 } else { 0x00 }));
+
     println!("Using {} speed",
              if sys_state.double_speed { "double" } else { "single" });
 }
