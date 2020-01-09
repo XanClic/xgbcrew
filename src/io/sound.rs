@@ -718,25 +718,33 @@ pub fn sound_write(sys_state: &mut SystemState, addr: u16, mut val: u8)
     match addr {
         0x10 => {
             s.ch1.nrx0 = val;
+            s.ch1.update_sweep();
             val &= 0x7f;
         },
 
         0x11 => {
             s.ch1.nrx1 = val;
+            s.ch1.update_duty();
+            s.ch1.update_len();
             val &= 0xc0;
         },
 
         0x12 => {
             s.ch1.nrx2 = val;
+            s.ch1.update_envelope();
         },
 
         0x13 => {
             s.ch1.nrx3 = val;
+            s.ch1.update_freq(true);
             val = 0;
         },
 
         0x14 => {
             s.ch1.nrx4 = val;
+            s.ch1.update_freq(true);
+
+            s.ch1.samples_limited = val & (1 << 6) != 0;
 
             if val & 0x80 != 0 {
                 s.ch1.initialize();
@@ -751,20 +759,27 @@ pub fn sound_write(sys_state: &mut SystemState, addr: u16, mut val: u8)
 
         0x16 => {
             s.ch2.nrx1 = val;
+            s.ch2.update_duty();
+            s.ch2.update_len();
             val &= 0xc0;
         },
 
         0x17 => {
             s.ch2.nrx2 = val;
+            s.ch2.update_envelope();
         },
 
         0x18 => {
             s.ch2.nrx3 = val;
+            s.ch2.update_freq(true);
             val = 0;
         },
 
         0x19 => {
             s.ch2.nrx4 = val;
+            s.ch2.update_freq(true);
+
+            s.ch2.samples_limited = val & (1 << 6) != 0;
 
             if val & 0x80 != 0 {
                 s.ch2.initialize();
@@ -824,19 +839,24 @@ pub fn sound_write(sys_state: &mut SystemState, addr: u16, mut val: u8)
 
         0x20 => {
             s.ch4.nrx1 = val;
+            s.ch4.update_len();
             val = 0;
         },
 
         0x21 => {
             s.ch4.nrx2 = val;
+            s.ch4.update_envelope();
         },
 
         0x22 => {
             s.ch4.nrx3 = val;
+            s.ch4.update_freq();
         },
 
         0x23 => {
             s.ch4.nrx4 = val;
+
+            s.ch4.samples_limited = val & (1 << 6) != 0;
 
             if val & 0x80 != 0 {
                 s.ch4.initialize();
