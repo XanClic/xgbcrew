@@ -151,7 +151,9 @@ fn hdma_write(sys_state: &mut SystemState, addr: u16, mut val: u8) {
             val = (val & 0x1f) | 0x80;
         },
 
-        0x52 | 0x54 => (),
+        0x52 | 0x54 => {
+            val &= !0xf;
+        },
 
         0x55 => {
             if io_get_reg(IOReg::HDMA5) & 0x80 == 0 {
