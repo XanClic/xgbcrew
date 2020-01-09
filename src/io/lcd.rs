@@ -385,7 +385,7 @@ fn stat_mode_transition(sys_state: &mut SystemState, ly: u8, from: u8, to: u8) {
     /* Care must be taken to only generate each interrupt on the
      * event's leading edge */
     if stat & 0b01000100 == 0b01000100 /* LYC match */ &&
-       to == 2 || to == 1 /* First submodes per line */
+       (to == 2 || to == 1) /* First submodes per line */
     {
         io_set_reg(IOReg::IF, io_get_reg(IOReg::IF) | (IRQ::LCDC as u8));
     }
