@@ -25,13 +25,20 @@ pub fn save_state_derive(input: TokenStream) -> TokenStream {
     }
 }
 
+struct Attr {
+    name: syn::Ident,
+    post_import: Vec<syn::Expr>,
+    neg_conditions: Vec<syn::Expr>,
+}
+
 fn save_state_derive_struct(name: syn::Ident, sf: syn::FieldsNamed)
     -> TokenStream
 {
-    let mut v = Vec::new();
-    let mut post_import = Vec::new();
+    let mut v = Vec::<Attr>::new();
 
     for field in &sf.named {
+        let mut post_import = Vec::new();
+        let mut neg_conditions = Vec::new();
         let field_name = field.ident.as_ref().unwrap().to_string();
         let mut skip = false;
 
@@ -68,6 +75,9 @@ fn save_state_derive_struct(name: syn::Ident, sf: syn::FieldsNamed)
                                                     if opt_name == "post_import" {
                                                         let s = syn::parse_str::<syn::Expr>(&ls.value()).unwrap();
                                                         post_import.push(s);
+                                                    } else if opt_name == "skip_if" {
+                                                        let s = syn::parse_str::<syn::Expr>(&ls.value()).unwrap();
+                                                        neg_conditions.push(s);
                                                     } else {
                                                         panic!("Unknown option {} for field {}",
                                                                opt_name, field_name);
@@ -92,20 +102,65 @@ fn save_state_derive_struct(name: syn::Ident, sf: syn::FieldsNamed)
             }
         }
 
-        if !skip {
-            v.push(field.ident.as_ref().unwrap());
+        if skip {
+            continue;
         }
+
+        v.push(Attr {
+            name: field.ident.as_ref().unwrap().clone(),
+            post_import: post_import,
+            neg_conditions: neg_conditions,
+        });
     }
+
+    let export_list = v.iter().map(|attr| {
+        let name = &attr.name;
+        let ncond = &attr.neg_conditions;
+
+        if ncond.is_empty() {
+            quote! {
+                savestate::SaveState::export(&self.#name, stream, version);
+            }
+        } else {
+            quote! {
+                if #(!(#ncond))&&* {
+                    savestate::SaveState::export(&self.#name, stream, version);
+                }
+            }
+        }
+    }).collect::<Vec<quote::__rt::TokenStream>>();
+
+    let import_list = v.iter().map(|attr| {
+        let name = &attr.name;
+        let ncond = &attr.neg_conditions;
+        let post = &attr.post_import;
+
+        if ncond.is_empty() {
+            quote! {
+                savestate::SaveState::import(&mut self.#name, stream, version);
+                #(#post;)*
+            }
+        } else {
+            quote! {
+                if #(!(#ncond))&&* {
+                    savestate::SaveState::import(&mut self.#name, stream,
+                                                 version);
+                    #(#post;)*
+                }
+            }
+        }
+    }).collect::<Vec<quote::__rt::TokenStream>>();
 
     let result = quote! {
         impl savestate::SaveState for #name {
-            fn export<T: std::io::Write>(&self, stream: &mut T) {
-                #(savestate::SaveState::export(&self.#v, stream);)*
+            fn export<T: std::io::Write>(&self, stream: &mut T, version: u64) {
+                #(#export_list)*
             }
 
-            fn import<T: std::io::Read>(&mut self, stream: &mut T) {
-                #(savestate::SaveState::import(&mut self.#v, stream);)*
-                #(#post_import;)*
+            fn import<T: std::io::Read>(&mut self, stream: &mut T,
+                                        version: u64)
+            {
+                #(#import_list)*
             }
         }
     };
