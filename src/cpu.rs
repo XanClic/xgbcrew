@@ -19,8 +19,8 @@ struct InternalInstruction {
 
 #[derive(SaveState)]
 pub struct CPU {
-    /* f, a, c, b, e, d, l, h */
-    /* b, c, d, e, h, l, (none), a */
+    /* Order here: f, a, c, b, e, d, l, h */
+    /* (Indices used in CPU instructions: b, c, d, e, h, l, (none), a) */
     regs8: [u8; 8],
     sp: u16,
     pc: u16,
@@ -33,28 +33,23 @@ pub struct CPU {
 
 impl CPU {
     pub fn new(cgb: bool) -> Self {
-        if cgb {
-            Self {
-                regs8: [0xb0u8, 0x11u8, 0x00u8, 0x00u8,
-                        0x56u8, 0xffu8, 0x0du8, 0x00u8],
-                sp: 0xfffeu16,
-                pc: 0x0100u16,
+        let (a, f, b, c, d, e, h, l) =
+            if cgb {
+                (0x11u8, 0xb0u8, 0x00u8, 0x00u8,
+                 0xffu8, 0x56u8, 0x00u8, 0x0du8)
+            } else {
+                (0x01u8, 0xb0u8, 0x00u8, 0x13u8,
+                 0x00u8, 0xd8u8, 0x01u8, 0x4du8)
+            };
 
-                halted: false,
+        Self {
+            regs8: [f, a, c, b, e, d, l, h],
+            sp: 0xfffeu16,
+            pc: 0x0100u16,
 
-                internal_insns: Vec::<InternalInstruction>::new(),
-            }
-        } else {
-            Self {
-                regs8: [0xb0u8, 0x01u8, 0x13u8, 0x00u8,
-                        0xd8u8, 0x00u8, 0x4du8, 0x01u8],
-                sp: 0xfffeu16,
-                pc: 0x0100u16,
+            halted: false,
 
-                halted: false,
-
-                internal_insns: Vec::<InternalInstruction>::new(),
-            }
+            internal_insns: Vec::<InternalInstruction>::new(),
         }
     }
 
