@@ -469,7 +469,7 @@ impl Cartridge {
             MbcType::MBC3 => Cartridge::mbc3_write(addr_space, addr, val),
             MbcType::MBC5 => Cartridge::mbc5_write(addr_space, addr, val),
 
-            _ => panic!("ROM write {:02x} => {:04x} not handled", val, addr),
+            _ => println!("ROM write {:02x} => {:04x} not handled", val, addr),
         }
     }
 }
