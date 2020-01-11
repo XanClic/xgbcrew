@@ -221,10 +221,10 @@ impl System {
             };
 
         if self.keyboard_state.shift {
-            self.export(&mut file);
+            savestate::export_root(self, &mut file, 0);
             println!("Exported save state {} to {}", key + 1, fname);
         } else {
-            self.import(&mut file);
+            savestate::import_root(self, &mut file, 0);
             println!("Imported save state {} from {}", key + 1, fname);
         }
     }

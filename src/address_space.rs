@@ -443,8 +443,8 @@ pub fn get_raw_read_addr(ptr: u16) -> usize {
 
 
 impl SaveState for AddressSpace {
-    fn export<T: std::io::Write>(&self, stream: &mut T) {
-        SaveState::export(&self.cartridge, stream);
+    fn export<T: std::io::Write>(&self, stream: &mut T, version: u64) {
+        SaveState::export(&self.cartridge, stream, version);
 
         Self::export_shm(self.wram_shm.unwrap(), 0x8000, stream);
         Self::export_shm(self.hram_shm.unwrap(), 0x1000, stream);
@@ -460,15 +460,15 @@ impl SaveState for AddressSpace {
 
         stream.write_all(&vram_slice).unwrap();
 
-        SaveState::export(self.romn_mapped.as_ref().unwrap(), stream);
-        SaveState::export(self.vram_mapped.as_ref().unwrap(), stream);
-        SaveState::export(&self.extram_mapped, stream);
-        SaveState::export(&self.extram_mapped_rw, stream);
-        SaveState::export(self.wramn_mapped.as_ref().unwrap(), stream);
+        SaveState::export(self.romn_mapped.as_ref().unwrap(), stream, version);
+        SaveState::export(self.vram_mapped.as_ref().unwrap(), stream, version);
+        SaveState::export(&self.extram_mapped, stream, version);
+        SaveState::export(&self.extram_mapped_rw, stream, version);
+        SaveState::export(self.wramn_mapped.as_ref().unwrap(), stream, version);
     }
 
-    fn import<T: std::io::Read>(&mut self, stream: &mut T) {
-        SaveState::import(&mut self.cartridge, stream);
+    fn import<T: std::io::Read>(&mut self, stream: &mut T, version: u64) {
+        SaveState::import(&mut self.cartridge, stream, version);
 
         Self::import_shm(self.wram_shm.unwrap(), 0x8000, stream);
         Self::import_shm(self.hram_shm.unwrap(), 0x1000, stream);
@@ -484,11 +484,11 @@ impl SaveState for AddressSpace {
 
         stream.read_exact(&mut vram_slice).unwrap();
 
-        SaveState::import(&mut self.rom_bank, stream);
-        SaveState::import(&mut self.vram_bank, stream);
-        SaveState::import(&mut self.extram_bank, stream);
-        SaveState::import(&mut self.extram_rw, stream);
-        SaveState::import(&mut self.wram_bank, stream);
+        SaveState::import(&mut self.rom_bank, stream, version);
+        SaveState::import(&mut self.vram_bank, stream, version);
+        SaveState::import(&mut self.extram_bank, stream, version);
+        SaveState::import(&mut self.extram_rw, stream, version);
+        SaveState::import(&mut self.wram_bank, stream, version);
 
         self.map();
     }
