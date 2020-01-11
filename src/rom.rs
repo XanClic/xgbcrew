@@ -519,7 +519,7 @@ pub fn load_rom(addr_space: &mut AddressSpace) -> SystemParams {
     };
 
     let rom_size = match rom_data_area.rom_size {
-        0..=6 => 2usize << rom_data_area.rom_size,
+        0..=9 => 2usize << rom_data_area.rom_size,
         0x52  => 72usize,
         0x53  => 80usize,
         0x54  => 96usize,
