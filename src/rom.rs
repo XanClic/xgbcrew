@@ -608,7 +608,7 @@ pub fn load_rom(addr_space: &mut AddressSpace) -> SystemParams {
 
     addr_space.cartridge = Cartridge {
         mbc: mbc,
-        extram: extram,
+        extram: extram || batt,
         rumble: rumble,
 
         rom_size: rom_size,
