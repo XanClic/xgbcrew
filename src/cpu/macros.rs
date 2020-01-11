@@ -1,98 +1,87 @@
 #[macro_export]
 macro_rules! mem {
-    [$ss:expr; read $t:ty:$a:expr] => (
-        mem!($ss; $t; $a)
+    [$ss:expr; read $a:expr] => (
+        mem!($ss; $a)
     );
 
-    [$ss:expr; write $v:expr => $t:ty:$a:expr] => (
-        mem!($ss; $t; $v => $a)
+    [$ss:expr; write $v:expr => $a:expr] => (
+        mem!($ss; $v => $a)
     );
 
-    ($ss:expr; $t:ty; $v:expr => $a:expr) => {
+    ($ss:expr; $v:expr => $a:expr) => {
         unsafe {
             let mem_addr = AS_BASE + ($a as usize);
 
             if $a < 0x8000u16 {
                 /* ROM */
-                let val = { $v };
-                let rom_write = |addr, x| $ss.addr_space.rom_write(addr, x);
-
-                val.split_into_u8($a, rom_write);
+                $ss.addr_space.rom_write($a, $v);
             } else if $a < 0xe000u16 {
                 if $a < 0xa000u16 || $a >= 0xc000 {
                     /* Video/Working RAM */
-                    *(mem_addr as *mut $t) = $v;
+                    *(mem_addr as *mut u8) = $v;
                 } else {
                     /* External RAM */
                     if $ss.addr_space.extram_rw {
-                        *(mem_addr as *mut $t) = $v;
+                        *(mem_addr as *mut u8) = $v;
                     } else {
-                        let val = { $v };
-                        let extram_write = |addr, x|
-                            $ss.addr_space.extram_write(addr, x);
-
-                        val.split_into_u8($a, extram_write);
+                        $ss.addr_space.extram_write($a, $v);
                     }
                 }
             } else if $a >= 0xff80u16 && $a < 0xffffu16 {
                 /* High WRAM and stack */
-                *((mem_addr + 0x1000) as *mut $t) = $v;
+                *((mem_addr + 0x1000) as *mut u8) = $v;
             } else if $a >= 0xfea0u16 {
                 if $a >= 0xff00u16 {
                     /* I/O */
-                    let val = { $v };
-                    let iow = |addr, x| io_write($ss, addr, x);
-
-                    val.split_into_u8($a - 0xff00, iow);
+                    io_write($ss, ($a) - 0xff00, $v);
                 } else {
                     /* Illegal to access, mirror WRAM */
-                    *((mem_addr - 0x2000) as *mut $t) = $v;
+                    *((mem_addr - 0x2000) as *mut u8) = $v;
                 }
             } else if $a >= 0xfe00u16 {
                 /* OAM */
-                *((mem_addr + 0x1000) as *mut $t) = $v;
+                *((mem_addr + 0x1000) as *mut u8) = $v;
             } else {
                 /* Illegal to access, mirror WRAM */
-                *((mem_addr - 0x2000) as *mut $t) = $v;
+                *((mem_addr - 0x2000) as *mut u8) = $v;
             }
         }
     };
 
-    [$ss:expr; $v:expr => $t:ty:$a:expr] => (
-        mem!($ss; $t; $v => $a)
+    [$ss:expr; $v:expr => $a:expr] => (
+        mem!($ss; $v => $a)
     );
 
-    ($ss:expr; $t:ty; $a:expr) => {
+    ($ss:expr; $a:expr) => {
         unsafe {
             let mem_addr = AS_BASE + ($a as usize);
 
             if $a < 0xe000u16 {
                 /* Normal AS */
-                *(mem_addr as *mut $t)
+                *(mem_addr as *mut u8)
             } else if $a >= 0xff80u16 && $a < 0xffffu16 {
                 /* High WRAM and stack */
-                *((mem_addr + 0x1000) as *mut $t)
+                *((mem_addr + 0x1000) as *mut u8)
             } else if $a >= 0xfea0u16 {
                 if $a >= 0xff00u16 {
                     /* I/O */
-                    let ior = |addr| io_read($ss, addr);
-                    <$t>::construct_from_u8($a - 0xff00, ior)
+                    io_read($ss, $a - 0xff00)
                 } else {
                     /* Illegal to access, mirror WRAM */
-                    *((mem_addr - 0x2000) as *mut $t)
+                    *((mem_addr - 0x2000) as *mut u8)
                 }
             } else if $a >= 0xfe00u16 {
                 /* OAM */
-                *((mem_addr + 0x1000) as *mut $t)
+                *((mem_addr + 0x1000) as *mut u8)
             } else {
                 /* Illegal to access, mirror WRAM */
-                *((mem_addr - 0x2000) as *mut $t)
+                *((mem_addr - 0x2000) as *mut u8)
             }
         }
     };
 
-    [$ss:expr; $t:ty:$a:expr] => (
-        mem!($ss; $t; $a)
+    [$ss:expr; $a:expr] => (
+        mem!($ss; $a)
     );
 }
 

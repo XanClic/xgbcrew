@@ -30,13 +30,13 @@ pub fn cpu_debug(cpu: &CPU, sys_state: &SystemState, msg: &str) {
 
 
 fn n8(cpu: &mut CPU, sys_state: &mut SystemState) -> u8 {
-    let val = mem![sys_state; u8:regs![cpu.pc]];
+    let val = mem![sys_state; regs![cpu.pc]];
     regs![regs![cpu.pc].wrapping_add(1u16) => cpu.pc];
     val
 }
 
 fn n16(cpu: &mut CPU, sys_state: &mut SystemState) -> u16 {
-    let val = mem![sys_state; u16:regs![cpu.pc]];
+    let val = u16::construct_from_u8(cpu.pc, |addr| mem![sys_state; addr]);
     regs![regs![cpu.pc].wrapping_add(2u16) => cpu.pc];
     val
 }
@@ -82,7 +82,7 @@ macro_rules! acc_op_r8 {
         if $r != 6 {
             $cpu.regs8[REG_MAPPING[$r]]
         } else {
-            mem![$ss; u8:regs![$cpu.hl]]
+            mem![$ss; regs![$cpu.hl]]
         }
     );
 
@@ -90,7 +90,7 @@ macro_rules! acc_op_r8 {
         if $r != 6 {
             $cpu.regs8[REG_MAPPING[$r]] = $v
         } else {
-            mem![$ss; $v => u8:regs![$cpu.hl]]
+            mem![$ss; $v => regs![$cpu.hl]]
         }
     );
 }
@@ -139,29 +139,29 @@ macro_rules! quasi_r8s {
     );
 
     ($cpu:ident/$sys_state:ident, _bc) => (
-        mem![$sys_state; u8:regs![$cpu.bc]]
+        mem![$sys_state; regs![$cpu.bc]]
     );
 
     ($cpu:ident/$sys_state:ident, _de) => (
-        mem![$sys_state; u8:regs![$cpu.de]]
+        mem![$sys_state; regs![$cpu.de]]
     );
 
     ($cpu:ident/$sys_state:ident, _hl) => (
-        mem![$sys_state; u8:regs![$cpu.hl]]
+        mem![$sys_state; regs![$cpu.hl]]
     );
 
     ($cpu:ident/$sys_state:ident, _ffn8) => ({
         let n = n8($cpu, $sys_state);
-        mem![$sys_state; read u8:0xff00u16 + (n as u16)]
+        mem![$sys_state; 0xff00u16 + (n as u16)]
     });
 
     ($cpu:ident/$sys_state:ident, _ffc) => (
-        mem![$sys_state; read u8:0xff00u16 + (regs![$cpu.c] as u16)]
+        mem![$sys_state; 0xff00u16 + (regs![$cpu.c] as u16)]
     );
 
     ($cpu:ident/$sys_state:ident, _n16) => ({
         let n = n16($cpu, $sys_state);
-        mem![$sys_state; u8:n]
+        mem![$sys_state; n]
     });
 
     ($cpu:ident/$sys_state:ident, $r:ident) => (
@@ -172,28 +172,28 @@ macro_rules! quasi_r8s {
 macro_rules! quasi_r8d {
     ($cpu:ident/$sys_state:ident, _ffn8, $v:expr) => ({
         let n = n8($cpu, $sys_state);
-        mem![$sys_state; $v => u8:(0xff00u16 + (n as u16))]
+        mem![$sys_state; $v => (0xff00u16 + (n as u16))]
     });
 
     ($cpu:ident/$sys_state:ident, _bc, $v:expr) => (
-        mem![$sys_state; $v => u8:regs![$cpu.bc]]
+        mem![$sys_state; $v => regs![$cpu.bc]]
     );
 
     ($cpu:ident/$sys_state:ident, _de, $v:expr) => (
-        mem![$sys_state; $v => u8:regs![$cpu.de]]
+        mem![$sys_state; $v => regs![$cpu.de]]
     );
 
     ($cpu:ident/$sys_state:ident, _hl, $v:expr) => (
-        mem![$sys_state; $v => u8:regs![$cpu.hl]]
+        mem![$sys_state; $v => regs![$cpu.hl]]
     );
 
     ($cpu:ident/$sys_state:ident, _ffc, $v:expr) => (
-        mem![$sys_state; $v => u8:(0xff00u16 + (regs![$cpu.c] as u16))]
+        mem![$sys_state; $v => (0xff00u16 + (regs![$cpu.c] as u16))]
     );
 
     ($cpu:ident/$sys_state:ident, _n16, $v:expr) => ({
         let n = n16($cpu, $sys_state);
-        mem![$sys_state; $v => u8:n]
+        mem![$sys_state; $v => n]
     });
 
     ($cpu:ident/$sys_state:ident, $r:ident, $v:expr) => (
@@ -622,7 +622,7 @@ macro_rules! rstn {
 
 fn not_implemented(cpu: &mut CPU, sys_state: &mut SystemState) {
     regs![regs![cpu.pc].wrapping_sub(1u16) => cpu.pc];
-    let insn = mem![sys_state; u8:regs![cpu.pc]];
+    let insn = mem![sys_state; regs![cpu.pc]];
     cpu_panic(cpu, format!("INSN 0x{:02x} not implemented", insn).as_str());
 }
 
@@ -944,30 +944,30 @@ swap8!(_hl);
 
 fn ld__n16_sp(cpu: &mut CPU, sys_state: &mut SystemState) {
     let n = n16(cpu, sys_state);
-    mem![sys_state; regs![cpu.sp] => u16:n];
+    regs![cpu.sp].split_into_u8(n, |addr, x| mem![sys_state; x => addr]);
 }
 
 fn ldi_a__hl(cpu: &mut CPU, sys_state: &mut SystemState) {
     let hl = regs![cpu.hl];
-    regs![mem![sys_state; u8:hl] => cpu.a];
+    regs![mem![sys_state; hl] => cpu.a];
     regs![hl.wrapping_add(1u16) => cpu.hl];
 }
 
 fn ldi__hl_a(cpu: &mut CPU, sys_state: &mut SystemState) {
     let hl = regs![cpu.hl];
-    mem![sys_state; regs![cpu.a] => u8:hl];
+    mem![sys_state; regs![cpu.a] => hl];
     regs![hl.wrapping_add(1u16) => cpu.hl];
 }
 
 fn ldd_a__hl(cpu: &mut CPU, sys_state: &mut SystemState) {
     let hl = regs![cpu.hl];
-    regs![mem![sys_state; u8:hl] => cpu.a];
+    regs![mem![sys_state; hl] => cpu.a];
     regs![hl.wrapping_sub(1u16) => cpu.hl];
 }
 
 fn ldd__hl_a(cpu: &mut CPU, sys_state: &mut SystemState) {
     let hl = regs![cpu.hl];
-    mem![sys_state; regs![cpu.a] => u8:hl];
+    mem![sys_state; regs![cpu.a] => hl];
     regs![hl.wrapping_sub(1u16) => cpu.hl];
 }
 
@@ -1055,7 +1055,7 @@ fn jp__hl(cpu: &mut CPU, _sys_state: &mut SystemState) {
 
 fn pop(cpu: &mut CPU, sys_state: &mut SystemState) -> u16 {
     let sp = regs![cpu.sp];
-    let val = mem![sys_state; u16:sp];
+    let val = u16::construct_from_u8(sp, |addr| mem![sys_state; addr]);
     regs![sp.wrapping_add(2) => cpu.sp];
     val
 }
@@ -1063,7 +1063,7 @@ fn pop(cpu: &mut CPU, sys_state: &mut SystemState) -> u16 {
 pub fn push(cpu: &mut CPU, sys_state: &mut SystemState, val: u16) {
     let sp = regs![cpu.sp].wrapping_sub(2);
     regs![sp => cpu.sp];
-    mem![sys_state; val => u16:sp];
+    val.split_into_u8(sp, |addr, x| mem![sys_state; x => addr]);
 }
 
 fn call_n16(cpu: &mut CPU, sys_state: &mut SystemState) {
