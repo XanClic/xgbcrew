@@ -129,14 +129,12 @@ fn get_tile_obj_pixel(data: (u8, u8), rx: u8, flags: u8) -> usize {
 }
 
 fn get_tile_prio(pixel: usize, flags: u8, obj_prio: bool) -> u8 {
-    if obj_prio {
+    if obj_prio || pixel == 0 {
         0
     } else if flags & (1 << 7) != 0 {
         2
-    } else if pixel != 0 {
-        1
     } else {
-        0
+        1
     }
 }
 
