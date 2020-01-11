@@ -16,3 +16,13 @@ paste = "0.1"
 sdl2 = "0.32.2"
 savestate = { path = "helpers/savestate", version = "0" }
 savestate_derive = { path = "helpers/savestate_derive", version = "0" }
+
+[profile.release]
+opt-level = 3
+debug = true
+rpath = false
+lto = true
+debug-assertions = false
+codegen-units = 1
+panic = 'abort'
+overflow-checks = false
