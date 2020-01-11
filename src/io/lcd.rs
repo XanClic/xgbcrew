@@ -520,6 +520,11 @@ pub fn lcd_write(sys_state: &mut SystemState, addr: u16, mut val: u8) {
             d.bg_tile_map   = if val & (1 << 3) != 0 { 0x1c00 } else { 0x1800 };
 
             d.obj_height    = if val & (1 << 2) != 0 { 16 } else { 8 };
+
+            if !d.enabled {
+                stat_mode_transition(sys_state, 0, io_get_reg(IOReg::STAT) & 3,
+                                     0);
+            }
         },
 
         0x41 => {
