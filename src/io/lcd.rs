@@ -47,7 +47,7 @@ pub struct DisplayState {
     #[savestate(skip_if("version < 1"),
                 import_fn("savestate::import_u8_slice"),
                 export_fn("savestate::export_u8_slice"))]
-    sgb_pal_bi: [u8; 20 * 18],
+    pub sgb_pal_bi: [u8; 20 * 18],
 
     #[savestate(skip_if("version < 1"),
                 import_fn("savestate::import_u8_slice"),
@@ -151,6 +151,10 @@ impl DisplayState {
 
     pub fn set_obj_pal(&mut self, index: usize, rgb15: u16) {
         self.obj_palette[index] = rgb15_to_rgb24(rgb15);
+    }
+
+    pub fn get_bg_pal(&self, index: usize) -> u32 {
+        self.bg_palette[index]
     }
 
     pub fn sgb_attr_blk(&mut self, ctrl: u8, pal: u8,
@@ -704,7 +708,7 @@ pub fn add_cycles(sys_state: &mut SystemState, cycles: u32) {
 
 
 /* TODO: Implement better translation function */
-fn rgb15_to_rgb24(rgb15: u16) -> u32 {
+pub fn rgb15_to_rgb24(rgb15: u16) -> u32 {
     let r =  rgb15        & 0x1f;
     let g = (rgb15 >>  5) & 0x1f;
     let b = (rgb15 >> 10) & 0x1f;

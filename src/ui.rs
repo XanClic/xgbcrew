@@ -10,8 +10,11 @@ pub struct UI {
 
     wnd_cvs: sdl2::render::Canvas<sdl2::video::Window>,
     lcd_txt: sdl2::render::Texture<'static>,
+    lcd_rect: sdl2::rect::Rect,
+    sgb_border: bool,
+    sgb_border_txt: sdl2::render::Texture<'static>,
 
-    audio_dev: Option<sdl2::audio::AudioDevice<AudioOutput>>
+    audio_dev: Option<sdl2::audio::AudioDevice<AudioOutput>>,
 }
 
 impl UI {
@@ -37,12 +40,22 @@ impl UI {
             )
         };
 
+        let sgb_border_txt = unsafe {
+            std::mem::transmute::<sdl2::render::Texture,
+                                  sdl2::render::Texture<'static>>(
+                txtc.create_texture(pixel_fmt, access, 256, 224).unwrap()
+            )
+        };
+
         Self {
             sdl_audio: audio,
             sdl_evt_pump: evt_pump,
 
             wnd_cvs: cvs,
             lcd_txt: lcd_txt,
+            lcd_rect: sdl2::rect::Rect::new(0, 0, 160, 144),
+            sgb_border: false,
+            sgb_border_txt: sgb_border_txt,
 
             audio_dev: None,
         }
@@ -80,8 +93,12 @@ impl UI {
                                        pixels.len() * 4)
         };
 
+        if self.sgb_border {
+            self.wnd_cvs.copy(&self.sgb_border_txt, None, None).unwrap();
+        }
+
         self.lcd_txt.update(None, pixels8, 160 * 4).unwrap();
-        self.wnd_cvs.copy(&self.lcd_txt, None, None).unwrap();
+        self.wnd_cvs.copy(&self.lcd_txt, None, Some(self.lcd_rect)).unwrap();
         self.wnd_cvs.present();
     }
 
@@ -128,6 +145,20 @@ impl UI {
         Some(ui_sc)
     }
 
+    fn update_rects(&mut self, w: u32, h: u32) {
+        let (lw, lh) =
+            if self.sgb_border {
+                (w * 160 / 256, h * 144 / 224)
+            } else {
+                (w, h)
+            };
+
+        self.lcd_rect =
+            sdl2::rect::Rect::from_center(
+                sdl2::rect::Point::new(w as i32 / 2, h as i32 / 2),
+                lw, lh);
+    }
+
     pub fn poll_event(&mut self) -> Option<UIEvent> {
         if let Some(evt) = self.sdl_evt_pump.poll_event() {
             let ui_event =
@@ -165,6 +196,22 @@ impl UI {
                         }
                     },
 
+                    sdl2::event::Event::Window {
+                        timestamp: _,
+                        window_id: _,
+                        win_event,
+                    } => {
+                        match win_event {
+                            sdl2::event::WindowEvent::Resized(w, h) => {
+                                self.update_rects(w as u32, h as u32);
+                            },
+
+                            _ => (),
+                        }
+
+                        None
+                    },
+
                     _ => {
                         None
                     },
@@ -178,6 +225,23 @@ impl UI {
         } else {
             None
         }
+    }
+
+    pub fn enable_sgb_border(&mut self) {
+        self.sgb_border = true;
+
+        /* FIXME: Maybe not force-resize here */
+        self.wnd_cvs.window_mut().set_size(256, 224).unwrap();
+        self.update_rects(256, 224);
+    }
+
+    pub fn set_sgb_border(&mut self, pixels: &[u32; 256 * 224]) {
+        let pixels8 = unsafe {
+            std::slice::from_raw_parts(pixels.as_ptr() as *const u8,
+                                       pixels.len() * 4)
+        };
+
+        self.sgb_border_txt.update(None, pixels8, 256 * 4).unwrap();
     }
 }
 

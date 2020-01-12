@@ -1,8 +1,18 @@
-use savestate::SaveState;
-
-use crate::io::lcd::DisplaySGBMask;
+use crate::io::lcd::{DisplaySGBMask, rgb15_to_rgb24};
 use crate::system_state::SystemState;
 
+
+#[derive(Serialize, Deserialize, PartialEq)]
+enum TransferDest {
+    Palette,
+    TilesLow,
+    TilesHigh,
+    BorderMapPalette,
+    OAM,
+    Sound,
+    AttributeFiles,
+    Data,
+}
 
 #[derive(SaveState)]
 pub struct SGBState {
@@ -11,9 +21,27 @@ pub struct SGBState {
 
     raw_packets: [[u8; 16]; 7],
 
+    #[savestate(skip_if("version < 3"))]
+    trn_dst: TransferDest,
+
     #[savestate(import_fn("savestate::import_u8_slice"),
                 export_fn("savestate::export_u8_slice"))]
     pal_data: [u8; 0x1000],
+    #[savestate(skip_if("version < 3"),
+                import_fn("savestate::import_u8_slice"),
+                export_fn("savestate::export_u8_slice"))]
+    tiles: [u8; 0x2000],
+    #[savestate(skip_if("version < 3"),
+                import_fn("savestate::import_u8_slice"),
+                export_fn("savestate::export_u8_slice"))]
+    border_map_palette: [u8; 0x1000],
+    #[savestate(skip_if("version < 3"),
+                import_fn("savestate::import_u8_slice"),
+                export_fn("savestate::export_u8_slice"))]
+    attr_files: [u8; 0x1000],
+
+    #[savestate(skip)]
+    pub border_pixels: [u32; 256 * 224],
 }
 
 impl SGBState {
@@ -24,11 +52,38 @@ impl SGBState {
 
             raw_packets: [[0u8; 16]; 7],
 
+            trn_dst: TransferDest::Data,
+
             pal_data: [0u8; 0x1000],
+            tiles: [0u8; 0x2000],
+            border_map_palette: [0u8; 0x1000],
+            attr_files: [0u8; 0x1000],
+
+            border_pixels: [0u32; 256 * 224],
         }
     }
 }
 
+
+fn sgb_palxy(sys_state: &mut SystemState, x: usize, y: usize) {
+    let s = &sys_state.sgb_state;
+
+    let col0 = s.raw_packets[0][1] as u16 |
+             ((s.raw_packets[0][2] as u16) << 8);
+
+    for p in 0..8 {
+        sys_state.display.set_bg_pal(p * 4, col0);
+    }
+
+    for i in 0..6 {
+        let col = s.raw_packets[0][i * 2 + 3] as u16 |
+                ((s.raw_packets[0][i * 2 + 4] as u16) << 8);
+
+        let p = if i < 3 { x } else { y };
+
+        sys_state.display.set_bg_pal(p * 4 + (i % 3) + 1, col);
+    }
+}
 
 fn sgb_attr_blk(sys_state: &mut SystemState) {
     let s = &mut sys_state.sgb_state;
@@ -53,8 +108,16 @@ fn sgb_pal_set(sys_state: &mut SystemState) {
     let s = &mut sys_state.sgb_state;
     let mut col0 = 0x7fff;
 
-    if s.raw_packets[0][9] & 0xc0 != 0 {
-        println!("Warning: SGB PAL_SET attribute file unhandled");
+    if s.raw_packets[0][9] & 0x40 != 0 {
+        for x in (&mut sys_state.display.sgb_pal_bi) as &mut [u8] {
+            *x = 0;
+        }
+    } else if s.raw_packets[0][9] & 0x80 != 0 {
+        let mut afi = (s.raw_packets[0][9] & 0x3f) as usize * (20 * 18);
+        for x in (&mut sys_state.display.sgb_pal_bi) as &mut [u8] {
+            *x = (s.attr_files[afi / 4] >> (3 - (afi % 4))) & 0x3;
+            afi += 1;
+        }
     }
 
     for pal_bi in 0..4 {
@@ -82,6 +145,7 @@ fn sgb_pal_set(sys_state: &mut SystemState) {
 }
 
 fn sgb_pal_trn(sys_state: &mut SystemState) {
+    sys_state.sgb_state.trn_dst = TransferDest::Palette;
     sys_state.display.fill_for_sgb_buf = true;
 }
 
@@ -93,6 +157,27 @@ fn sgb_mlt_req(sys_state: &mut SystemState) {
 
         _ => (),
     };
+}
+
+fn sgb_chr_trn(sys_state: &mut SystemState) {
+    sys_state.sgb_state.trn_dst =
+        if sys_state.sgb_state.raw_packets[0][1] & 0x1 == 0 {
+            TransferDest::TilesLow
+        } else {
+            TransferDest::TilesHigh
+        };
+
+    sys_state.display.fill_for_sgb_buf = true;
+}
+
+fn sgb_pcr_trn(sys_state: &mut SystemState) {
+    sys_state.sgb_state.trn_dst = TransferDest::BorderMapPalette;
+    sys_state.display.fill_for_sgb_buf = true;
+}
+
+fn sgb_attr_trn(sys_state: &mut SystemState) {
+    sys_state.sgb_state.trn_dst = TransferDest::AttributeFiles;
+    sys_state.display.fill_for_sgb_buf = true;
 }
 
 fn sgb_mask_en(sys_state: &mut SystemState) {
@@ -108,10 +193,10 @@ fn sgb_mask_en(sys_state: &mut SystemState) {
 
 pub fn sgb_cmd(sys_state: &mut SystemState) {
     match sys_state.sgb_state.raw_packets[0][0] >> 3 {
-        0x00 => println!("SGB PAL01 unhandled"),
-        0x01 => println!("SGB PAL23 unhandled"),
-        0x02 => println!("SGB PAL03 unhandled"),
-        0x03 => println!("SGB PAL12 unhandled"),
+        0x00 => sgb_palxy(sys_state, 0, 1),
+        0x01 => sgb_palxy(sys_state, 2, 3),
+        0x02 => sgb_palxy(sys_state, 0, 3),
+        0x03 => sgb_palxy(sys_state, 1, 2),
         0x04 => sgb_attr_blk(sys_state),
         0x05 => println!("SGB ATTR_LIN unhandled"),
         0x06 => println!("SGB ATTR_DIV unhandled"),
@@ -126,9 +211,9 @@ pub fn sgb_cmd(sys_state: &mut SystemState) {
         0x10 => println!("SGB DATA_TRN unhandled"),
         0x11 => sgb_mlt_req(sys_state),
         0x12 => println!("SGB JUMP unhandled"),
-        0x13 => println!("SGB CHR_TRN unhandled"),
-        0x14 => println!("SGB PCT_TRN unhandled"),
-        0x15 => println!("SGB ATTR_TRN unhandled"),
+        0x13 => sgb_chr_trn(sys_state),
+        0x14 => sgb_pcr_trn(sys_state),
+        0x15 => sgb_attr_trn(sys_state),
         0x16 => println!("SGB ATTR_SET unhandled"),
         0x17 => sgb_mask_en(sys_state),
         0x19 => println!("SGB PAL_PRI unhandled"),
@@ -164,12 +249,7 @@ pub fn sgb_pulse(sys_state: &mut SystemState, np14: bool, np15: bool) {
     }
 }
 
-/* FIXME: Allow transfers to things but the palette */
-pub fn sgb_buf_done(sys_state: &mut SystemState) {
-    let mut i = 0;
-    let ibuf = &sys_state.display.for_sgb_buf;
-    let obuf = &mut sys_state.sgb_state.pal_data;
-
+fn sgb_buf_transfer(obuf: &mut [u8], ibuf: &[u8], mut i: usize) {
     for by in (0..144).step_by(8) {
         for x in (0..160).step_by(8) {
             for ry in 0..8 {
@@ -208,6 +288,106 @@ pub fn sgb_buf_done(sys_state: &mut SystemState) {
                     return;
                 }
             }
+        }
+    }
+}
+
+pub fn sgb_buf_done(sys_state: &mut SystemState) {
+    let s = &mut sys_state.sgb_state;
+    let ibuf = &sys_state.display.for_sgb_buf;
+
+    let i =
+        match s.trn_dst {
+            TransferDest::TilesHigh => 0x1000,
+            _ => 0,
+        };
+
+    let obuf =
+        match s.trn_dst {
+            TransferDest::Palette => &mut s.pal_data as &mut [u8],
+            TransferDest::TilesLow => &mut s.tiles as &mut [u8],
+            TransferDest::TilesHigh => &mut s.tiles as &mut [u8],
+            TransferDest::BorderMapPalette =>
+                &mut s.border_map_palette as &mut [u8],
+            TransferDest::AttributeFiles => &mut s.attr_files as &mut [u8],
+
+            _ => unreachable!(),
+        };
+
+    sgb_buf_transfer(obuf, ibuf, i);
+
+    if s.trn_dst == TransferDest::BorderMapPalette {
+        sgb_construct_border_image(sys_state);
+        sys_state.enable_sgb_border = true;
+    }
+}
+
+fn sgb_construct_border_image(sys_state: &mut SystemState) {
+    let s = &mut sys_state.sgb_state;
+
+    let mut border_pal = [0u32; 8 * 16];
+    for pi in 0..(4 * 16) {
+        let rgb15 =
+            s.border_map_palette[0x800 + pi * 2 + 0] as u16 |
+            ((s.border_map_palette[0x800 + pi * 2 + 1] as u16) << 8);
+
+        border_pal[pi + 4 * 16] =
+            if pi % 16 == 0 {
+                sys_state.display.get_bg_pal(0)
+            } else {
+                rgb15_to_rgb24(rgb15)
+            };
+    }
+
+    for pi in 0..4 {
+        for shade in 0..16 {
+            if shade < 4 {
+                border_pal[pi * 16 + shade] =
+                    sys_state.display.get_bg_pal(pi * 4 + shade);
+            } else {
+                border_pal[pi * 16 + shade] = 0xff00ff;
+            }
+        }
+    }
+
+    let mut i = 0;
+    for y in 0..224 {
+        for x in 0..256 {
+            let map_i = (y / 8) * 32 + x / 8;
+            let map =
+                s.border_map_palette[map_i * 2 + 0] as usize |
+                ((s.border_map_palette[map_i * 2 + 1] as usize) << 8);
+
+            let tile_i = map & 0xff;
+            let pal_bi = ((map >> 10) & 0x7) * 16;
+
+            let xm =
+                if map & (1 << 14) == 0 {
+                    7 - (x % 8)
+                } else {
+                    x % 8
+                };
+
+            let ym =
+                if map & (1 << 15) == 0 {
+                    y % 8
+                } else {
+                    7 - (y % 8)
+                };
+
+            let shade_planed =
+                ((s.tiles[tile_i * 32 + ym * 2 +  0] >> xm) & 0x1,
+                 (s.tiles[tile_i * 32 + ym * 2 +  1] >> xm) & 0x1,
+                 (s.tiles[tile_i * 32 + ym * 2 + 16] >> xm) & 0x1,
+                 (s.tiles[tile_i * 32 + ym * 2 + 17] >> xm) & 0x1);
+
+            let shade = shade_planed.0 |
+                       (shade_planed.1 << 1) |
+                       (shade_planed.2 << 2) |
+                       (shade_planed.3 << 3);
+
+            s.border_pixels[i] = border_pal[pal_bi + shade as usize];
+            i += 1;
         }
     }
 }
