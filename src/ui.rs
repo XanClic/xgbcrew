@@ -230,9 +230,12 @@ impl UI {
     pub fn enable_sgb_border(&mut self) {
         self.sgb_border = true;
 
-        /* FIXME: Maybe not force-resize here */
-        self.wnd_cvs.window_mut().set_size(256, 224).unwrap();
-        self.update_rects(256, 224);
+        let (mut w, mut h) = self.wnd_cvs.output_size().unwrap();
+        w = std::cmp::max(w, 256);
+        h = std::cmp::max(h, 224);
+
+        self.wnd_cvs.window_mut().set_size(w, h).unwrap();
+        self.update_rects(w, h);
     }
 
     pub fn set_sgb_border(&mut self, pixels: &[u32; 256 * 224]) {
