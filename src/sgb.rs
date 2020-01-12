@@ -63,42 +63,44 @@ fn sgb_attr_blk(sys_state: &mut SystemState) {
     }
 }
 
+fn sgb_pal_set(sys_state: &mut SystemState) {
+    let s = &mut sys_state.sgb_state;
+    let mut col0 = 0x7fff;
+
+    if s.raw_packets[0][9] & 0xc0 != 0 {
+        println!("Warning: SGB PAL_SET attribute file unhandled");
+    }
+
+    for pal_bi in 0..4 {
+        let idx = s.raw_packets[0][pal_bi * 2 + 1] as usize |
+                ((s.raw_packets[0][pal_bi * 2 + 2] as usize) << 8);
+
+        for shade in 0..4 {
+            let fpi = (idx * 4 + shade) * 2;
+            let rgb15 = s.pal.data[fpi + 0] as u16 |
+                      ((s.pal.data[fpi + 1] as u16) << 8);
+
+            if shade == 0 && pal_bi == 3 {
+                col0 = rgb15;
+            }
+
+            sys_state.display.set_bg_pal(pal_bi * 4 + shade, rgb15);
+            sys_state.display.set_obj_pal(pal_bi * 4 + shade, rgb15);
+        }
+    }
+
+    for pal_bi in 0..4 {
+        sys_state.display.set_bg_pal(pal_bi * 4, col0);
+        sys_state.display.set_obj_pal(pal_bi * 4, col0);
+    }
+}
+
 pub fn sgb_cmd(sys_state: &mut SystemState) {
     let s = &mut sys_state.sgb_state;
 
     match s.raw_packets[0][0] >> 3 {
         0x04 => sgb_attr_blk(sys_state),
-
-        0x0a => {
-            let mut col0 = 0x7fff;
-
-            if s.raw_packets[0][9] & 0xc0 != 0 {
-                println!("Warning: SGB PAL_SET attribute file unhandled");
-            }
-
-            for pal_bi in 0..4 {
-                let idx = s.raw_packets[0][pal_bi * 2 + 1] as usize |
-                        ((s.raw_packets[0][pal_bi * 2 + 2] as usize) << 8);
-
-                for shade in 0..4 {
-                    let fpi = (idx * 4 + shade) * 2;
-                    let rgb15 = s.pal.data[fpi + 0] as u16 |
-                              ((s.pal.data[fpi + 1] as u16) << 8);
-
-                    if shade == 0 && pal_bi == 3 {
-                        col0 = rgb15;
-                    }
-
-                    sys_state.display.set_bg_pal(pal_bi * 4 + shade, rgb15);
-                    sys_state.display.set_obj_pal(pal_bi * 4 + shade, rgb15);
-                }
-            }
-
-            for pal_bi in 0..4 {
-                sys_state.display.set_bg_pal(pal_bi * 4, col0);
-                sys_state.display.set_obj_pal(pal_bi * 4, col0);
-            }
-        },
+        0x0a => sgb_pal_set(sys_state),
 
         0x0b => {
             sys_state.display.fill_for_sgb_buf = true;
