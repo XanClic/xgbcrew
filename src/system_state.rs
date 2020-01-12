@@ -11,6 +11,9 @@ use crate::io::timer::TimerState;
 use crate::sgb::SGBState;
 use crate::ui::UI;
 
+
+const SAVE_STATE_VERSION: u64 = 2;
+
 #[allow(dead_code)]
 pub enum IOReg {
     P1      = 0x00,
@@ -228,10 +231,10 @@ impl System {
             };
 
         if self.keyboard_state.shift {
-            savestate::export_root(self, &mut file, 1);
+            savestate::export_root(self, &mut file, SAVE_STATE_VERSION);
             println!("Exported save state {} to {}", key + 1, fname);
         } else {
-            savestate::import_root(self, &mut file, 1);
+            savestate::import_root(self, &mut file, SAVE_STATE_VERSION);
             println!("Imported save state {} from {}", key + 1, fname);
         }
     }

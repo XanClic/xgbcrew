@@ -5,9 +5,19 @@ use crate::sgb::sgb_buf_done;
 use crate::system_state::{IOReg, SystemState};
 
 
+#[derive(Serialize, Deserialize, PartialEq)]
+pub enum DisplaySGBMask {
+    NoMask,
+    Freeze,
+    Black,
+    Color0,
+}
+
 #[derive(SaveState)]
 pub struct DisplayState {
-    #[savestate(skip)]
+    #[savestate(skip_if("version < 2"),
+                import_fn("import_pixels"),
+                export_fn("export_pixels"))]
     pub lcd_pixels: [u32; 160 * 144],
 
     enabled: bool,
@@ -40,13 +50,20 @@ pub struct DisplayState {
     sgb_pal_bi: [u8; 20 * 18],
 
     #[savestate(skip_if("version < 1"),
-                import_fn("import_pixels"),
-                export_fn("export_pixels"))]
+                import_fn("import_pixels_u8"),
+                export_fn("export_pixels_u8"))]
     pub for_sgb_buf: [u8; 160 * 144],
     #[savestate(skip_if("version < 1"))]
     pub fill_for_sgb_buf: bool,
     #[savestate(skip_if("version < 1"))]
     pub filling_for_sgb_buf: bool,
+
+    #[savestate(skip_if("version < 2"))]
+    sgb_mask: DisplaySGBMask,
+    #[savestate(skip_if("version < 2"),
+                import_fn("import_pixels"),
+                export_fn("export_pixels"))]
+    sgb_freeze: [u32; 160 * 144],
 }
 
 fn import_pal_bi<T: std::io::Read>(pal: &mut [u8; 20 * 18], stream: &mut T,
@@ -61,16 +78,35 @@ fn export_pal_bi<T: std::io::Write>(pal: &[u8; 20 * 18], stream: &mut T,
     stream.write_all(pal).unwrap();
 }
 
-fn import_pixels<T: std::io::Read>(pixels: &mut [u8; 160 * 144], stream: &mut T,
-                                   _version: u64)
+fn import_pixels_u8<T: std::io::Read>(pixels: &mut [u8; 160 * 144],
+                                      stream: &mut T, _version: u64)
 {
     stream.read_exact(pixels).unwrap();
 }
 
-fn export_pixels<T: std::io::Write>(pixels: &[u8; 160 * 144], stream: &mut T,
-                                    _version: u64)
+fn export_pixels_u8<T: std::io::Write>(pixels: &[u8; 160 * 144], stream: &mut T,
+                                       _version: u64)
 {
     stream.write_all(pixels).unwrap();
+}
+
+fn import_pixels<T: std::io::Read>(pixels: &mut [u32; 160 * 144],
+                                   stream: &mut T, _version: u64)
+{
+    let pixels_u8 = unsafe {
+        std::mem::transmute::<&mut [u32; 160 * 144],
+                              &mut [u8; 160 * 144 * 4]>(pixels)
+    };
+    stream.read_exact(pixels_u8).unwrap();
+}
+
+fn export_pixels<T: std::io::Write>(pixels: &[u32; 160 * 144], stream: &mut T,
+                                    _version: u64)
+{
+    let pixels_u8 = unsafe {
+        std::mem::transmute::<&[u32; 160 * 144], &[u8; 160 * 144 * 4]>(pixels)
+    };
+    stream.write_all(pixels_u8).unwrap();
 }
 
 
@@ -138,6 +174,9 @@ impl DisplayState {
             for_sgb_buf: [0u8; 160 * 144],
             fill_for_sgb_buf: false,
             filling_for_sgb_buf: false,
+
+            sgb_mask: DisplaySGBMask::NoMask,
+            sgb_freeze: [0u32; 160 * 144],
         }
     }
 
@@ -215,6 +254,17 @@ impl DisplayState {
                 i += 1;
             }
         }
+    }
+
+    pub fn sgb_mask(&mut self, mask: DisplaySGBMask) {
+        if mask == DisplaySGBMask::Freeze {
+            /* FIXME: Should use an old complete frame */
+            for i in 0..(160 * 144) {
+                self.sgb_freeze[i] = self.lcd_pixels[i];
+            }
+        }
+
+        self.sgb_mask = mask;
     }
 }
 
@@ -555,6 +605,8 @@ fn draw_line(sys_state: &mut SystemState, line: u8) {
 
 
 fn stat_mode_transition(sys_state: &mut SystemState, ly: u8, from: u8, to: u8) {
+    let d = &mut sys_state.display;
+
     assert!((ly > 143) == (to == 1));
 
     let mut stat = io_get_reg(IOReg::STAT);
@@ -589,8 +641,30 @@ fn stat_mode_transition(sys_state: &mut SystemState, ly: u8, from: u8, to: u8) {
 
             sys_state.vblanked = true;
 
-            if sys_state.display.filling_for_sgb_buf {
-                sys_state.display.filling_for_sgb_buf = false;
+            match d.sgb_mask {
+                DisplaySGBMask::NoMask => (),
+
+                DisplaySGBMask::Freeze => {
+                    for i in 0..(160 * 144) {
+                        d.lcd_pixels[i] = d.sgb_freeze[i];
+                    }
+                },
+
+                DisplaySGBMask::Black => {
+                    for i in 0..(160 * 144) {
+                        d.lcd_pixels[i] = 0x000000;
+                    }
+                },
+
+                DisplaySGBMask::Color0 => {
+                    for i in 0..(160 * 144) {
+                        d.lcd_pixels[i] = d.bg_palette[0];
+                    }
+                },
+            }
+
+            if d.filling_for_sgb_buf {
+                d.filling_for_sgb_buf = false;
                 sgb_buf_done(sys_state);
             }
 

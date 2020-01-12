@@ -1,5 +1,6 @@
 use savestate::SaveState;
 
+use crate::io::lcd::DisplaySGBMask;
 use crate::system_state::SystemState;
 
 
@@ -109,6 +110,17 @@ fn sgb_mlt_req(sys_state: &mut SystemState) {
     };
 }
 
+fn sgb_mask_en(sys_state: &mut SystemState) {
+    match sys_state.sgb_state.raw_packets[0][1] & 0x3 {
+        0 => sys_state.display.sgb_mask(DisplaySGBMask::NoMask),
+        1 => sys_state.display.sgb_mask(DisplaySGBMask::Freeze),
+        2 => sys_state.display.sgb_mask(DisplaySGBMask::Black),
+        3 => sys_state.display.sgb_mask(DisplaySGBMask::Color0),
+
+        _ => unreachable!(),
+    }
+}
+
 pub fn sgb_cmd(sys_state: &mut SystemState) {
     match sys_state.sgb_state.raw_packets[0][0] >> 3 {
         0x00 => println!("SGB PAL01 unhandled"),
@@ -133,7 +145,7 @@ pub fn sgb_cmd(sys_state: &mut SystemState) {
         0x14 => println!("SGB PCT_TRN unhandled"),
         0x15 => println!("SGB ATTR_TRN unhandled"),
         0x16 => println!("SGB ATTR_SET unhandled"),
-        0x17 => println!("SGB MASK_EN unhandled"),
+        0x17 => sgb_mask_en(sys_state),
         0x19 => println!("SGB PAL_PRI unhandled"),
 
         x => println!("Unknown SGB command {:02x}", x),
