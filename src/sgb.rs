@@ -4,10 +4,6 @@ use crate::io::lcd::DisplaySGBMask;
 use crate::system_state::SystemState;
 
 
-struct PaletteData {
-    data: [u8; 0x1000]
-}
-
 #[derive(SaveState)]
 pub struct SGBState {
     packet_index: usize,
@@ -15,7 +11,9 @@ pub struct SGBState {
 
     raw_packets: [[u8; 16]; 7],
 
-    pal: PaletteData,
+    #[savestate(import_fn("savestate::import_u8_slice"),
+                export_fn("savestate::export_u8_slice"))]
+    pal_data: [u8; 0x1000],
 }
 
 impl SGBState {
@@ -26,21 +24,8 @@ impl SGBState {
 
             raw_packets: [[0u8; 16]; 7],
 
-            pal: PaletteData {
-                data: [0u8; 0x1000],
-            },
+            pal_data: [0u8; 0x1000],
         }
-    }
-}
-
-
-impl SaveState for PaletteData {
-    fn export<T: std::io::Write>(&self, stream: &mut T, _version: u64) {
-        stream.write_all(&self.data).unwrap();
-    }
-
-    fn import<T: std::io::Read>(&mut self, stream: &mut T, _version: u64) {
-        stream.read_exact(&mut self.data).unwrap();
     }
 }
 
@@ -78,8 +63,8 @@ fn sgb_pal_set(sys_state: &mut SystemState) {
 
         for shade in 0..4 {
             let fpi = (idx * 4 + shade) * 2;
-            let rgb15 = s.pal.data[fpi + 0] as u16 |
-                      ((s.pal.data[fpi + 1] as u16) << 8);
+            let rgb15 = s.pal_data[fpi + 0] as u16 |
+                      ((s.pal_data[fpi + 1] as u16) << 8);
 
             if shade == 0 && pal_bi == 3 {
                 col0 = rgb15;
@@ -183,7 +168,7 @@ pub fn sgb_pulse(sys_state: &mut SystemState, np14: bool, np15: bool) {
 pub fn sgb_buf_done(sys_state: &mut SystemState) {
     let mut i = 0;
     let ibuf = &sys_state.display.for_sgb_buf;
-    let obuf = &mut sys_state.sgb_state.pal.data;
+    let obuf = &mut sys_state.sgb_state.pal_data;
 
     for by in (0..144).step_by(8) {
         for x in (0..160).step_by(8) {

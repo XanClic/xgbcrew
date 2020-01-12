@@ -16,8 +16,8 @@ pub enum DisplaySGBMask {
 #[derive(SaveState)]
 pub struct DisplayState {
     #[savestate(skip_if("version < 2"),
-                import_fn("import_pixels"),
-                export_fn("export_pixels"))]
+                import_fn("savestate::import_u32_slice"),
+                export_fn("savestate::export_u32_slice"))]
     pub lcd_pixels: [u32; 160 * 144],
 
     enabled: bool,
@@ -45,13 +45,13 @@ pub struct DisplayState {
     obj_palette_mapping: [u8; 8],
 
     #[savestate(skip_if("version < 1"),
-                import_fn("import_pal_bi"),
-                export_fn("export_pal_bi"))]
+                import_fn("savestate::import_u8_slice"),
+                export_fn("savestate::export_u8_slice"))]
     sgb_pal_bi: [u8; 20 * 18],
 
     #[savestate(skip_if("version < 1"),
-                import_fn("import_pixels_u8"),
-                export_fn("export_pixels_u8"))]
+                import_fn("savestate::import_u8_slice"),
+                export_fn("savestate::export_u8_slice"))]
     pub for_sgb_buf: [u8; 160 * 144],
     #[savestate(skip_if("version < 1"))]
     pub fill_for_sgb_buf: bool,
@@ -61,52 +61,9 @@ pub struct DisplayState {
     #[savestate(skip_if("version < 2"))]
     sgb_mask: DisplaySGBMask,
     #[savestate(skip_if("version < 2"),
-                import_fn("import_pixels"),
-                export_fn("export_pixels"))]
+                import_fn("savestate::import_u32_slice"),
+                export_fn("savestate::export_u32_slice"))]
     sgb_freeze: [u32; 160 * 144],
-}
-
-fn import_pal_bi<T: std::io::Read>(pal: &mut [u8; 20 * 18], stream: &mut T,
-                                   _version: u64)
-{
-    stream.read_exact(pal).unwrap();
-}
-
-fn export_pal_bi<T: std::io::Write>(pal: &[u8; 20 * 18], stream: &mut T,
-                                    _version: u64)
-{
-    stream.write_all(pal).unwrap();
-}
-
-fn import_pixels_u8<T: std::io::Read>(pixels: &mut [u8; 160 * 144],
-                                      stream: &mut T, _version: u64)
-{
-    stream.read_exact(pixels).unwrap();
-}
-
-fn export_pixels_u8<T: std::io::Write>(pixels: &[u8; 160 * 144], stream: &mut T,
-                                       _version: u64)
-{
-    stream.write_all(pixels).unwrap();
-}
-
-fn import_pixels<T: std::io::Read>(pixels: &mut [u32; 160 * 144],
-                                   stream: &mut T, _version: u64)
-{
-    let pixels_u8 = unsafe {
-        std::mem::transmute::<&mut [u32; 160 * 144],
-                              &mut [u8; 160 * 144 * 4]>(pixels)
-    };
-    stream.read_exact(pixels_u8).unwrap();
-}
-
-fn export_pixels<T: std::io::Write>(pixels: &[u32; 160 * 144], stream: &mut T,
-                                    _version: u64)
-{
-    let pixels_u8 = unsafe {
-        std::mem::transmute::<&[u32; 160 * 144], &[u8; 160 * 144 * 4]>(pixels)
-    };
-    stream.write_all(pixels_u8).unwrap();
 }
 
 

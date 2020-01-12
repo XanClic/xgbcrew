@@ -76,7 +76,8 @@ impl UI {
 
     pub fn present_frame(&mut self, pixels: &[u32; 160 * 144]) {
         let pixels8 = unsafe {
-            std::mem::transmute::<&[u32], &[u8]>(pixels)
+            std::slice::from_raw_parts(pixels.as_ptr() as *const u8,
+                                       pixels.len() * 4)
         };
 
         self.lcd_txt.update(None, pixels8, 160 * 4).unwrap();
