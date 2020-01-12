@@ -110,22 +110,31 @@ fn sgb_mlt_req(sys_state: &mut SystemState) {
 }
 
 pub fn sgb_cmd(sys_state: &mut SystemState) {
-    let s = &mut sys_state.sgb_state;
-
-    match s.raw_packets[0][0] >> 3 {
+    match sys_state.sgb_state.raw_packets[0][0] >> 3 {
+        0x00 => println!("SGB PAL01 unhandled"),
+        0x01 => println!("SGB PAL23 unhandled"),
+        0x02 => println!("SGB PAL03 unhandled"),
+        0x03 => println!("SGB PAL12 unhandled"),
         0x04 => sgb_attr_blk(sys_state),
+        0x05 => println!("SGB ATTR_LIN unhandled"),
+        0x06 => println!("SGB ATTR_DIV unhandled"),
+        0x07 => println!("SGB ATTR_CHR unhandled"),
+        0x08 => println!("SGB SOUND unhandled"),
+        0x09 => println!("SGB SOU_TRN unhandled"),
         0x0a => sgb_pal_set(sys_state),
         0x0b => sgb_pal_trn(sys_state),
-
-        0x0f => println!("SGB DATA_SND(-> {:02x}.{:02x}{:02x}) unhandled",
-                         s.raw_packets[0][3], s.raw_packets[0][2],
-                         s.raw_packets[0][1]),
-
+        0x0c => println!("SGB ATRC_EN unhandled"),
+        0x0e => println!("SGB ICON_EN unhandled"),
+        0x0f => println!("SGB DATA_SND unhandled"),
+        0x10 => println!("SGB DATA_TRN unhandled"),
         0x11 => sgb_mlt_req(sys_state),
-
+        0x12 => println!("SGB JUMP unhandled"),
         0x13 => println!("SGB CHR_TRN unhandled"),
         0x14 => println!("SGB PCT_TRN unhandled"),
+        0x15 => println!("SGB ATTR_TRN unhandled"),
+        0x16 => println!("SGB ATTR_SET unhandled"),
         0x17 => println!("SGB MASK_EN unhandled"),
+        0x19 => println!("SGB PAL_PRI unhandled"),
 
         x => println!("Unknown SGB command {:02x}", x),
     }
