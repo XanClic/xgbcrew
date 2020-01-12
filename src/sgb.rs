@@ -95,16 +95,17 @@ fn sgb_pal_set(sys_state: &mut SystemState) {
     }
 }
 
+fn sgb_pal_trn(sys_state: &mut SystemState) {
+    sys_state.display.fill_for_sgb_buf = true;
+}
+
 pub fn sgb_cmd(sys_state: &mut SystemState) {
     let s = &mut sys_state.sgb_state;
 
     match s.raw_packets[0][0] >> 3 {
         0x04 => sgb_attr_blk(sys_state),
         0x0a => sgb_pal_set(sys_state),
-
-        0x0b => {
-            sys_state.display.fill_for_sgb_buf = true;
-        },
+        0x0b => sgb_pal_trn(sys_state),
 
         0x0f => println!("SGB DATA_SND(-> {:02x}.{:02x}{:02x}) unhandled",
                          s.raw_packets[0][3], s.raw_packets[0][2],
