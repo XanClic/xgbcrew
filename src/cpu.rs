@@ -32,11 +32,14 @@ pub struct CPU {
 }
 
 impl CPU {
-    pub fn new(cgb: bool) -> Self {
+    pub fn new(cgb: bool, sgb: bool) -> Self {
         let (a, f, b, c, d, e, h, l) =
             if cgb {
                 (0x11u8, 0xb0u8, 0x00u8, 0x00u8,
                  0xffu8, 0x56u8, 0x00u8, 0x0du8)
+            } else if sgb {
+                (0xffu8, 0xb0u8, 0x00u8, 0x13u8,
+                 0x00u8, 0xd8u8, 0x01u8, 0x4du8)
             } else {
                 (0x01u8, 0xb0u8, 0x00u8, 0x13u8,
                  0x00u8, 0xd8u8, 0x01u8, 0x4du8)

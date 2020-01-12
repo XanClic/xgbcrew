@@ -1,0 +1,256 @@
+use savestate::SaveState;
+
+use crate::system_state::SystemState;
+
+
+struct PaletteData {
+    data: [u8; 0x1000]
+}
+
+#[derive(SaveState)]
+pub struct SGBState {
+    packet_index: usize,
+    packet_bit_index: usize,
+
+    raw_packets: [[u8; 16]; 7],
+
+    pal: PaletteData,
+}
+
+impl SGBState {
+    pub fn new() -> Self {
+        Self {
+            packet_index: 0,
+            packet_bit_index: 0,
+
+            raw_packets: [[0u8; 16]; 7],
+
+            pal: PaletteData {
+                data: [0u8; 0x1000],
+            },
+        }
+    }
+}
+
+
+impl SaveState for PaletteData {
+    fn export<T: std::io::Write>(&self, stream: &mut T, _version: u64) {
+        stream.write_all(&self.data).unwrap();
+    }
+
+    fn import<T: std::io::Read>(&mut self, stream: &mut T, _version: u64) {
+        stream.read_exact(&mut self.data).unwrap();
+    }
+}
+
+
+pub fn sgb_cmd(sys_state: &mut SystemState) {
+    let s = &mut sys_state.sgb_state;
+
+    match s.raw_packets[0][0] >> 3 {
+        0x04 => {
+            for i in 0..(20 * 18) {
+                sys_state.display.sgb_pal_bi[i] = 0;
+            }
+
+            let mut i = 2;
+            for _ in 0..s.raw_packets[0][1] {
+                let (ctrl, pal, x1, y1, x2, y2) =
+                    (s.raw_packets[(i + 0) / 16][(i + 0) % 16],
+                     s.raw_packets[(i + 1) / 16][(i + 1) % 16],
+                     s.raw_packets[(i + 2) / 16][(i + 2) % 16] as usize,
+                     s.raw_packets[(i + 3) / 16][(i + 3) % 16] as usize,
+                     s.raw_packets[(i + 4) / 16][(i + 4) % 16] as usize,
+                     s.raw_packets[(i + 5) / 16][(i + 5) % 16] as usize);
+
+                i += 6;
+
+                let (inner_s, outer_s, border_s) =
+                    match ctrl & 0b111 {
+                        0b000 => (None,    None,    None),
+                        0b001 => (Some(0), None,    Some(0)),
+                        0b010 => (None,    None,    Some(2)),
+                        0b011 => (Some(0), None,    Some(2)),
+                        0b100 => (None,    Some(4), Some(4)),
+                        0b101 => (Some(0), Some(4), None),
+                        0b110 => (None,    Some(4), Some(2)),
+                        0b111 => (Some(0), Some(4), Some(2)),
+
+                        _ => unreachable!(),
+                    };
+
+                let inner =
+                    if let Some(s) = inner_s {
+                        Some(((pal >> s) & 0x3) * 4)
+                    } else {
+                        None
+                    };
+
+                let outer =
+                    if let Some(s) = outer_s {
+                        Some(((pal >> s) & 0x3) * 4)
+                    } else {
+                        None
+                    };
+
+                let border =
+                    if let Some(s) = border_s {
+                        Some(((pal >> s) & 0x3) * 4)
+                    } else {
+                        None
+                    };
+
+                let mut i = 0;
+                for y in 0..18 {
+                    for x in 0..20 {
+                        if x < x1 || x > x2 || y < y1 || y > y2 {
+                            if let Some(p) = outer {
+                                sys_state.display.sgb_pal_bi[i] = p;
+                            }
+                        } else if x > x1 && x < x2 && y > y1 && y < y2 {
+                            if let Some(p) = inner {
+                                sys_state.display.sgb_pal_bi[i] = p;
+                            }
+                        } else {
+                            if let Some(p) = border {
+                                sys_state.display.sgb_pal_bi[i] = p;
+                            }
+                        }
+
+                        i += 1;
+                    }
+                }
+            }
+        },
+
+        0x0a => {
+            let mut col0 = 0x7fff;
+
+            if s.raw_packets[0][9] & 0xc0 != 0 {
+                println!("Warning: SGB PAL_SET attribute file unhandled");
+            }
+
+            for pal_bi in 0..4 {
+                let idx = s.raw_packets[0][pal_bi * 2 + 1] as usize |
+                        ((s.raw_packets[0][pal_bi * 2 + 2] as usize) << 8);
+
+                for shade in 0..4 {
+                    let fpi = (idx * 4 + shade) * 2;
+                    let rgb15 = s.pal.data[fpi + 0] as u16 |
+                              ((s.pal.data[fpi + 1] as u16) << 8);
+
+                    if shade == 0 && pal_bi == 3 {
+                        col0 = rgb15;
+                    }
+
+                    sys_state.display.set_bg_pal(pal_bi * 4 + shade, rgb15);
+                    sys_state.display.set_obj_pal(pal_bi * 4 + shade, rgb15);
+                }
+            }
+
+            for pal_bi in 0..4 {
+                sys_state.display.set_bg_pal(pal_bi * 4, col0);
+                sys_state.display.set_obj_pal(pal_bi * 4, col0);
+            }
+        },
+
+        0x0b => {
+            sys_state.display.fill_for_sgb_buf = true;
+        },
+
+        0x0f => println!("SGB DATA_SND(-> {:02x}.{:02x}{:02x}) unhandled",
+                         s.raw_packets[0][3], s.raw_packets[0][2],
+                         s.raw_packets[0][1]),
+
+        0x11 => {
+            match s.raw_packets[0][1] {
+                0 => sys_state.keypad.set_controller_count(1),
+                1 => sys_state.keypad.set_controller_count(2),
+                3 => sys_state.keypad.set_controller_count(4),
+
+                _ => (),
+            };
+        },
+
+        0x13 => println!("SGB CHR_TRN unhandled"),
+        0x14 => println!("SGB PCT_TRN unhandled"),
+        0x17 => println!("SGB MASK_EN unhandled"),
+
+        x => println!("Unknown SGB command {:02x}", x),
+    }
+}
+
+pub fn sgb_pulse(sys_state: &mut SystemState, np14: bool, np15: bool) {
+    let s = &mut sys_state.sgb_state;
+
+    if np14 && np15 {
+        s.packet_bit_index = 0;
+        for x in &mut s.raw_packets[s.packet_index] {
+            *x = 0;
+        }
+    } else if s.packet_bit_index < 16 * 8 {
+        let pi = s.packet_index;
+        if np15 {
+            let i = s.packet_bit_index;
+            s.raw_packets[pi][i / 8] |= 1 << (i % 8);
+        }
+        s.packet_bit_index += 1;
+
+        if s.packet_bit_index == 16 * 8 {
+            s.packet_index += 1;
+            if s.packet_index >= (s.raw_packets[0][0] & 0x7) as usize {
+                s.packet_index = 0;
+
+                sgb_cmd(sys_state);
+            }
+        }
+    }
+}
+
+/* FIXME: Allow transfers to things but the palette */
+pub fn sgb_buf_done(sys_state: &mut SystemState) {
+    let mut i = 0;
+    let ibuf = &sys_state.display.for_sgb_buf;
+    let obuf = &mut sys_state.sgb_state.pal.data;
+
+    for by in (0..144).step_by(8) {
+        for x in (0..160).step_by(8) {
+            for ry in 0..8 {
+                let y = by + ry;
+
+                let p = (ibuf[y * 160 + x + 0],
+                         ibuf[y * 160 + x + 1],
+                         ibuf[y * 160 + x + 2],
+                         ibuf[y * 160 + x + 3],
+                         ibuf[y * 160 + x + 4],
+                         ibuf[y * 160 + x + 5],
+                         ibuf[y * 160 + x + 6],
+                         ibuf[y * 160 + x + 7]);
+
+                obuf[i] = ((p.0 & 1) << 7) |
+                          ((p.1 & 1) << 6) |
+                          ((p.2 & 1) << 5) |
+                          ((p.3 & 1) << 4) |
+                          ((p.4 & 1) << 3) |
+                          ((p.5 & 1) << 2) |
+                          ((p.6 & 1) << 1) |
+                          ((p.7 & 1) << 0);
+                i += 1;
+
+                obuf[i] = ((p.0 & 2) << 6) |
+                          ((p.1 & 2) << 5) |
+                          ((p.2 & 2) << 4) |
+                          ((p.3 & 2) << 3) |
+                          ((p.4 & 2) << 2) |
+                          ((p.5 & 2) << 1) |
+                          ((p.6 & 2) << 0) |
+                          ((p.7 & 2) >> 1);
+                i += 1;
+
+                if i >= 0x1000 {
+                    return;
+                }
+            }
+        }
+    }
+}

@@ -1,4 +1,3 @@
-use savestate::SaveState;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 
@@ -9,6 +8,7 @@ use crate::io::keypad::KeypadState;
 use crate::io::lcd::DisplayState;
 use crate::io::sound::SoundState;
 use crate::io::timer::TimerState;
+use crate::sgb::SGBState;
 use crate::ui::UI;
 
 #[allow(dead_code)]
@@ -126,6 +126,7 @@ pub enum UIEvent {
 
 pub struct SystemParams {
     pub cgb: bool,
+    pub sgb: bool,
 }
 
 pub struct AudioOutputParams {
@@ -160,7 +161,10 @@ pub struct System {
 pub struct SystemState {
     pub addr_space: AddressSpace,
 
+    #[savestate(skip_if("version >= 1"))]
     pub cgb: bool,
+    #[savestate(skip)]
+    pub sgb: bool,
     pub ints_enabled: bool,
     pub double_speed: bool,
     #[savestate(skip)]
@@ -171,6 +175,9 @@ pub struct SystemState {
     pub keypad: KeypadState,
     pub sound: SoundState,
     pub timer: TimerState,
+
+    #[savestate(skip_if("version < 1"))]
+    pub sgb_state: SGBState,
 }
 
 
@@ -178,7 +185,7 @@ impl System {
     pub fn new(mut sys_state: SystemState, mut ui: UI, base_path: String)
         -> Self
     {
-        let cpu = CPU::new(sys_state.cgb);
+        let cpu = CPU::new(sys_state.cgb, sys_state.sgb);
 
         ui.setup_audio(sys_state.sound.get_audio_params());
 
@@ -221,10 +228,10 @@ impl System {
             };
 
         if self.keyboard_state.shift {
-            savestate::export_root(self, &mut file, 0);
+            savestate::export_root(self, &mut file, 1);
             println!("Exported save state {} to {}", key + 1, fname);
         } else {
-            savestate::import_root(self, &mut file, 0);
+            savestate::import_root(self, &mut file, 1);
             println!("Imported save state {} from {}", key + 1, fname);
         }
     }
@@ -296,6 +303,7 @@ impl SystemState {
             addr_space: addr_space,
 
             cgb: params.cgb,
+            sgb: params.sgb && !params.cgb,
             ints_enabled: true,
             double_speed: false,
             realtime: true,
@@ -305,6 +313,8 @@ impl SystemState {
             keypad: KeypadState::new(),
             sound: SoundState::new(),
             timer: TimerState::new(),
+
+            sgb_state: SGBState::new(),
         };
 
         DisplayState::init_system_state(&mut state);

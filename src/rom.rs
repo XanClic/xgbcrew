@@ -625,5 +625,6 @@ pub fn load_rom(addr_space: &mut AddressSpace) -> SystemParams {
 
     SystemParams {
         cgb: gbc_mode,
+        sgb: sgb_mode,
     }
 }

@@ -1,6 +1,7 @@
 use crate::address_space::get_raw_read_addr;
 use crate::io::{hdma_copy_16b, io_get_reg, io_set_addr, io_set_reg, io_write};
 use crate::io::int::IRQ;
+use crate::sgb::sgb_buf_done;
 use crate::system_state::{IOReg, SystemState};
 
 
@@ -27,6 +28,49 @@ pub struct DisplayState {
     bg_palette15: [u16; 32],
     obj_palette: [u32; 32],
     obj_palette15: [u16; 32],
+
+    #[savestate(skip_if("version < 1"))]
+    bg_palette_mapping: [u8; 4],
+    #[savestate(skip_if("version < 1"))]
+    obj_palette_mapping: [u8; 8],
+
+    #[savestate(skip_if("version < 1"),
+                import_fn("import_pal_bi"),
+                export_fn("export_pal_bi"))]
+    pub sgb_pal_bi: [u8; 20 * 18],
+
+    #[savestate(skip_if("version < 1"),
+                import_fn("import_pixels"),
+                export_fn("export_pixels"))]
+    pub for_sgb_buf: [u8; 160 * 144],
+    #[savestate(skip_if("version < 1"))]
+    pub fill_for_sgb_buf: bool,
+    #[savestate(skip_if("version < 1"))]
+    pub filling_for_sgb_buf: bool,
+}
+
+fn import_pal_bi<T: std::io::Read>(pal: &mut [u8; 20 * 18], stream: &mut T,
+                                   _version: u64)
+{
+    stream.read_exact(pal).unwrap();
+}
+
+fn export_pal_bi<T: std::io::Write>(pal: &[u8; 20 * 18], stream: &mut T,
+                                    _version: u64)
+{
+    stream.write_all(pal).unwrap();
+}
+
+fn import_pixels<T: std::io::Read>(pixels: &mut [u8; 160 * 144], stream: &mut T,
+                                   _version: u64)
+{
+    stream.read_exact(pixels).unwrap();
+}
+
+fn export_pixels<T: std::io::Write>(pixels: &[u8; 160 * 144], stream: &mut T,
+                                    _version: u64)
+{
+    stream.write_all(pixels).unwrap();
 }
 
 
@@ -49,10 +93,51 @@ impl DisplayState {
 
             bcps: 0,
             ocps: 0,
-            bg_palette: [0xffffff; 32],
-            bg_palette15: [0x7fff; 32],
-            obj_palette: [0x00; 32],
-            obj_palette15: [0x0000; 32],
+
+            bg_palette: [0xffffff, 0xa8a8a8, 0x505050, 0x000000,
+                         0xffffff, 0xa8a8a8, 0x505050, 0x000000,
+                         0xffffff, 0xa8a8a8, 0x505050, 0x000000,
+                         0xffffff, 0xa8a8a8, 0x505050, 0x000000,
+                         0xffffff, 0xa8a8a8, 0x505050, 0x000000,
+                         0xffffff, 0xa8a8a8, 0x505050, 0x000000,
+                         0xffffff, 0xa8a8a8, 0x505050, 0x000000,
+                         0xffffff, 0xa8a8a8, 0x505050, 0x000000],
+
+            bg_palette15: [0x7fff, 0x5294, 0x294a, 0x0000,
+                           0x7fff, 0x5294, 0x294a, 0x0000,
+                           0x7fff, 0x5294, 0x294a, 0x0000,
+                           0x7fff, 0x5294, 0x294a, 0x0000,
+                           0x7fff, 0x5294, 0x294a, 0x0000,
+                           0x7fff, 0x5294, 0x294a, 0x0000,
+                           0x7fff, 0x5294, 0x294a, 0x0000,
+                           0x7fff, 0x5294, 0x294a, 0x0000],
+
+            obj_palette: [0xffffff, 0xa8a8a8, 0x505050, 0x000000,
+                          0xffffff, 0xa8a8a8, 0x505050, 0x000000,
+                          0xffffff, 0xa8a8a8, 0x505050, 0x000000,
+                          0xffffff, 0xa8a8a8, 0x505050, 0x000000,
+                          0xffffff, 0xa8a8a8, 0x505050, 0x000000,
+                          0xffffff, 0xa8a8a8, 0x505050, 0x000000,
+                          0xffffff, 0xa8a8a8, 0x505050, 0x000000,
+                          0xffffff, 0xa8a8a8, 0x505050, 0x000000],
+
+            obj_palette15: [0x7fff, 0x5294, 0x294a, 0x0000,
+                            0x7fff, 0x5294, 0x294a, 0x0000,
+                            0x7fff, 0x5294, 0x294a, 0x0000,
+                            0x7fff, 0x5294, 0x294a, 0x0000,
+                            0x7fff, 0x5294, 0x294a, 0x0000,
+                            0x7fff, 0x5294, 0x294a, 0x0000,
+                            0x7fff, 0x5294, 0x294a, 0x0000,
+                            0x7fff, 0x5294, 0x294a, 0x0000],
+
+            bg_palette_mapping: [0, 1, 2, 3],
+            obj_palette_mapping: [0, 1, 2, 3, 4, 5, 6, 7],
+
+            sgb_pal_bi: [0u8; 20 * 18],
+
+            for_sgb_buf: [0u8; 160 * 144],
+            fill_for_sgb_buf: false,
+            filling_for_sgb_buf: false,
         }
     }
 
@@ -62,6 +147,14 @@ impl DisplayState {
         io_write(sys_state, IOReg::BGP  as u16, 0xfc);
         io_write(sys_state, IOReg::OBP0 as u16, 0xff);
         io_write(sys_state, IOReg::OBP1 as u16, 0xff);
+    }
+
+    pub fn set_bg_pal(&mut self, index: usize, rgb15: u16) {
+        self.bg_palette[index] = rgb15_to_rgb24(rgb15);
+    }
+
+    pub fn set_obj_pal(&mut self, index: usize, rgb15: u16) {
+        self.obj_palette[index] = rgb15_to_rgb24(rgb15);
     }
 }
 
@@ -174,9 +267,10 @@ fn draw_bg_line(sys_state: &mut SystemState,
         }
 
         let flags = fetch_tile_flags(bg_tile_map, tile, sys_state.cgb);
-        let (data, pal_bi) = get_tile_data_and_pal(bg_tile_map, tile_data,
-                                                   tile_data_signed, flags,
-                                                   tile, ry, 8, sys_state.cgb);
+        let (data, mut pal_bi) = get_tile_data_and_pal(bg_tile_map, tile_data,
+                                                       tile_data_signed, flags,
+                                                       tile, ry, 8,
+                                                       sys_state.cgb);
 
         for rx in 0..8 {
             let screen_x = (bx + rx).wrapping_sub(sx) as usize;
@@ -184,9 +278,20 @@ fn draw_bg_line(sys_state: &mut SystemState,
                 continue;
             }
 
+            if sys_state.sgb {
+                pal_bi = d.sgb_pal_bi[(screen_line as usize / 8) * 20 +
+                                      screen_x as usize / 8] as usize;
+            }
+
             let val = get_tile_obj_pixel(data, rx, flags);
-            pixels[screen_x] = d.bg_palette[pal_bi + val];
+            let pal_i = d.bg_palette_mapping[val] as usize;
+            pixels[screen_x] = d.bg_palette[pal_bi + pal_i];
             bg_prio[screen_x] = get_tile_prio(val, flags, d.obj_prio);
+
+            if d.filling_for_sgb_buf {
+                d.for_sgb_buf[screen_line as usize * 160 + screen_x as usize] =
+                    pal_i as u8;
+            }
         }
 
         let (nbx, wrap) = bx.overflowing_add(8);
@@ -234,10 +339,10 @@ fn draw_wnd_line(sys_state: &mut SystemState,
 
     for bx in (wx..160).step_by(8) {
         let flags = fetch_tile_flags(wnd_tile_map, tile, sys_state.cgb);
-        let (data, pal_bi) = get_tile_data_and_pal(wnd_tile_map, tile_data,
-                                                   tile_data_signed, flags,
-                                                   tile, ry as isize, 8,
-                                                   sys_state.cgb);
+        let (data, mut pal_bi) = get_tile_data_and_pal(wnd_tile_map, tile_data,
+                                                       tile_data_signed, flags,
+                                                       tile, ry as isize, 8,
+                                                       sys_state.cgb);
 
         for rx in 0..8 {
             let screen_x = (bx + rx) as usize;
@@ -245,9 +350,20 @@ fn draw_wnd_line(sys_state: &mut SystemState,
                 break;
             }
 
+            if sys_state.sgb {
+                pal_bi = d.sgb_pal_bi[(screen_line as usize / 8) * 20 +
+                                      screen_x as usize / 8] as usize;
+            }
+
             let val = get_tile_obj_pixel(data, rx, flags);
-            pixels[screen_x] = d.bg_palette[pal_bi + val];
+            let pal_i = d.bg_palette_mapping[val] as usize;
+            pixels[screen_x] = d.bg_palette[pal_bi + pal_i];
             bg_prio[screen_x] = get_tile_prio(val, flags, d.obj_prio);
+
+            if d.filling_for_sgb_buf {
+                d.for_sgb_buf[screen_line as usize * 160 + screen_x as usize] =
+                    pal_i as u8;
+            }
         }
 
         tile += 1;
@@ -294,7 +410,7 @@ fn draw_obj_line(sys_state: &mut SystemState, screen_line: u8,
             ofs &= !0x1f;
         }
 
-        let (data_ofs, pal_bi) =
+        let (data_ofs, mut pal_bi) =
             if sys_state.cgb {
                 (if flags & (1 << 3) != 0 { 0x2000 } else { 0 },
                  ((flags & 7) as usize) * 4)
@@ -318,10 +434,21 @@ fn draw_obj_line(sys_state: &mut SystemState, screen_line: u8,
                 continue;
             }
 
+            if sys_state.sgb {
+                pal_bi = d.sgb_pal_bi[(screen_line as usize / 8) * 20 +
+                                      screen_x as usize / 8] as usize;
+            }
+
             let val = get_tile_obj_pixel(data, rx as u8, flags);
             if val != 0 && bg_prio[screen_x] < 2 {
                 if flags & (1 << 7) == 0 || bg_prio[screen_x] < 1 {
-                    pixels[screen_x] = d.obj_palette[pal_bi + val];
+                    let pal_i = d.obj_palette_mapping[val] as usize;
+                    pixels[screen_x] = d.obj_palette[pal_bi + pal_i];
+
+                    if d.filling_for_sgb_buf {
+                        d.for_sgb_buf[screen_line as usize * 160 +
+                                      screen_x as usize] = pal_i as u8;
+                    }
                 }
             }
         }
@@ -401,6 +528,16 @@ fn stat_mode_transition(sys_state: &mut SystemState, ly: u8, from: u8, to: u8) {
             io_set_reg(IOReg::IF, io_get_reg(IOReg::IF) | (IRQ::VBlank as u8));
 
             sys_state.vblanked = true;
+
+            if sys_state.display.filling_for_sgb_buf {
+                sys_state.display.filling_for_sgb_buf = false;
+                sgb_buf_done(sys_state);
+            }
+
+            if sys_state.display.fill_for_sgb_buf {
+                sys_state.display.fill_for_sgb_buf = false;
+                sys_state.display.filling_for_sgb_buf = true;
+            }
         }
     }
 
@@ -488,13 +625,6 @@ fn rgb15_to_rgb24(rgb15: u16) -> u32 {
     (r8 << 16) | (g8 << 8) | b8
 }
 
-const SHADE: [u32; 4] = [
-    0xffffff,
-    0xa8a8a8,
-    0x505050,
-    0x000000,
-];
-
 pub fn lcd_write(sys_state: &mut SystemState, addr: u16, mut val: u8) {
     match addr {
         0x40 => {
@@ -554,10 +684,10 @@ pub fn lcd_write(sys_state: &mut SystemState, addr: u16, mut val: u8) {
             if !sys_state.cgb {
                 let d = &mut sys_state.display;
 
-                d.bg_palette[0] = SHADE[(val as usize >> 0) & 0x3];
-                d.bg_palette[1] = SHADE[(val as usize >> 2) & 0x3];
-                d.bg_palette[2] = SHADE[(val as usize >> 4) & 0x3];
-                d.bg_palette[3] = SHADE[(val as usize >> 6) & 0x3];
+                d.bg_palette_mapping[0] = (val >> 0) & 0x3;
+                d.bg_palette_mapping[1] = (val >> 2) & 0x3;
+                d.bg_palette_mapping[2] = (val >> 4) & 0x3;
+                d.bg_palette_mapping[3] = (val >> 6) & 0x3;
             }
         },
 
@@ -565,10 +695,10 @@ pub fn lcd_write(sys_state: &mut SystemState, addr: u16, mut val: u8) {
             if !sys_state.cgb {
                 let d = &mut sys_state.display;
 
-                d.obj_palette[0] = SHADE[(val as usize >> 0) & 0x3];
-                d.obj_palette[1] = SHADE[(val as usize >> 2) & 0x3];
-                d.obj_palette[2] = SHADE[(val as usize >> 4) & 0x3];
-                d.obj_palette[3] = SHADE[(val as usize >> 6) & 0x3];
+                d.obj_palette_mapping[0] = (val >> 0) & 0x3;
+                d.obj_palette_mapping[1] = (val >> 2) & 0x3;
+                d.obj_palette_mapping[2] = (val >> 4) & 0x3;
+                d.obj_palette_mapping[3] = (val >> 6) & 0x3;
             }
         },
 
@@ -576,10 +706,10 @@ pub fn lcd_write(sys_state: &mut SystemState, addr: u16, mut val: u8) {
             if !sys_state.cgb {
                 let d = &mut sys_state.display;
 
-                d.obj_palette[4] = SHADE[(val as usize >> 0) & 0x3];
-                d.obj_palette[5] = SHADE[(val as usize >> 2) & 0x3];
-                d.obj_palette[6] = SHADE[(val as usize >> 4) & 0x3];
-                d.obj_palette[7] = SHADE[(val as usize >> 6) & 0x3];
+                d.obj_palette_mapping[4] = (val >> 0) & 0x3;
+                d.obj_palette_mapping[5] = (val >> 2) & 0x3;
+                d.obj_palette_mapping[6] = (val >> 4) & 0x3;
+                d.obj_palette_mapping[7] = (val >> 6) & 0x3;
             }
         },
 
