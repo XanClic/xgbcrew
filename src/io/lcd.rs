@@ -37,7 +37,7 @@ pub struct DisplayState {
     #[savestate(skip_if("version < 1"),
                 import_fn("import_pal_bi"),
                 export_fn("export_pal_bi"))]
-    pub sgb_pal_bi: [u8; 20 * 18],
+    sgb_pal_bi: [u8; 20 * 18],
 
     #[savestate(skip_if("version < 1"),
                 import_fn("import_pixels"),
@@ -155,6 +155,66 @@ impl DisplayState {
 
     pub fn set_obj_pal(&mut self, index: usize, rgb15: u16) {
         self.obj_palette[index] = rgb15_to_rgb24(rgb15);
+    }
+
+    pub fn sgb_attr_blk(&mut self, ctrl: u8, pal: u8,
+                        x1: usize, y1: usize, x2: usize, y2: usize)
+    {
+        let (inner_s, outer_s, border_s) =
+            match ctrl & 0b111 {
+                0b000 => (None,    None,    None),
+                0b001 => (Some(0), None,    Some(0)),
+                0b010 => (None,    None,    Some(2)),
+                0b011 => (Some(0), None,    Some(2)),
+                0b100 => (None,    Some(4), Some(4)),
+                0b101 => (Some(0), Some(4), None),
+                0b110 => (None,    Some(4), Some(2)),
+                0b111 => (Some(0), Some(4), Some(2)),
+
+                _ => unreachable!(),
+            };
+
+        let inner =
+            if let Some(s) = inner_s {
+                Some(((pal >> s) & 0x3) * 4)
+            } else {
+                None
+            };
+
+        let outer =
+            if let Some(s) = outer_s {
+                Some(((pal >> s) & 0x3) * 4)
+            } else {
+                None
+            };
+
+        let border =
+            if let Some(s) = border_s {
+                Some(((pal >> s) & 0x3) * 4)
+            } else {
+                None
+            };
+
+        let mut i = 0;
+        for y in 0..18 {
+            for x in 0..20 {
+                if x < x1 || x > x2 || y < y1 || y > y2 {
+                    if let Some(p) = outer {
+                        self.sgb_pal_bi[i] = p;
+                    }
+                } else if x > x1 && x < x2 && y > y1 && y < y2 {
+                    if let Some(p) = inner {
+                        self.sgb_pal_bi[i] = p;
+                    }
+                } else {
+                    if let Some(p) = border {
+                        self.sgb_pal_bi[i] = p;
+                    }
+                }
+
+                i += 1;
+            }
+        }
     }
 }
 
