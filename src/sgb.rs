@@ -99,6 +99,16 @@ fn sgb_pal_trn(sys_state: &mut SystemState) {
     sys_state.display.fill_for_sgb_buf = true;
 }
 
+fn sgb_mlt_req(sys_state: &mut SystemState) {
+    match sys_state.sgb_state.raw_packets[0][1] {
+        0 => sys_state.keypad.set_controller_count(1),
+        1 => sys_state.keypad.set_controller_count(2),
+        3 => sys_state.keypad.set_controller_count(4),
+
+        _ => (),
+    };
+}
+
 pub fn sgb_cmd(sys_state: &mut SystemState) {
     let s = &mut sys_state.sgb_state;
 
@@ -111,15 +121,7 @@ pub fn sgb_cmd(sys_state: &mut SystemState) {
                          s.raw_packets[0][3], s.raw_packets[0][2],
                          s.raw_packets[0][1]),
 
-        0x11 => {
-            match s.raw_packets[0][1] {
-                0 => sys_state.keypad.set_controller_count(1),
-                1 => sys_state.keypad.set_controller_count(2),
-                3 => sys_state.keypad.set_controller_count(4),
-
-                _ => (),
-            };
-        },
+        0x11 => sgb_mlt_req(sys_state),
 
         0x13 => println!("SGB CHR_TRN unhandled"),
         0x14 => println!("SGB PCT_TRN unhandled"),
