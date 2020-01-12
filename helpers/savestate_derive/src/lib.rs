@@ -29,6 +29,8 @@ struct Attr {
     name: syn::Ident,
     post_import: Vec<syn::Expr>,
     neg_conditions: Vec<syn::Expr>,
+    import_fn: Option<syn::Path>,
+    export_fn: Option<syn::Path>,
 }
 
 fn save_state_derive_struct(name: syn::Ident, sf: syn::FieldsNamed)
@@ -41,6 +43,8 @@ fn save_state_derive_struct(name: syn::Ident, sf: syn::FieldsNamed)
         let mut neg_conditions = Vec::new();
         let field_name = field.ident.as_ref().unwrap().to_string();
         let mut skip = false;
+        let mut import_fn = None;
+        let mut export_fn = None;
 
         for a in &field.attrs {
             let attr_name = a.path.get_ident().as_ref().unwrap().to_string();
@@ -78,6 +82,12 @@ fn save_state_derive_struct(name: syn::Ident, sf: syn::FieldsNamed)
                                                     } else if opt_name == "skip_if" {
                                                         let s = syn::parse_str::<syn::Expr>(&ls.value()).unwrap();
                                                         neg_conditions.push(s);
+                                                    } else if opt_name == "import_fn" {
+                                                        let s = syn::parse_str::<syn::Path>(&ls.value()).unwrap();
+                                                        import_fn = Some(s);
+                                                    } else if opt_name == "export_fn" {
+                                                        let s = syn::parse_str::<syn::Path>(&ls.value()).unwrap();
+                                                        export_fn = Some(s);
                                                     } else {
                                                         panic!("Unknown option {} for field {}",
                                                                opt_name, field_name);
@@ -110,6 +120,8 @@ fn save_state_derive_struct(name: syn::Ident, sf: syn::FieldsNamed)
             name: field.ident.as_ref().unwrap().clone(),
             post_import: post_import,
             neg_conditions: neg_conditions,
+            import_fn: import_fn,
+            export_fn: export_fn,
         });
     }
 
@@ -117,14 +129,25 @@ fn save_state_derive_struct(name: syn::Ident, sf: syn::FieldsNamed)
         let name = &attr.name;
         let ncond = &attr.neg_conditions;
 
+        let call =
+            if let Some(export_fn) = attr.export_fn.as_ref() {
+                quote! {
+                    #export_fn(&self.#name, stream, version);
+                }
+            } else {
+                quote! {
+                    savestate::SaveState::export(&self.#name, stream, version);
+                }
+            };
+
         if ncond.is_empty() {
             quote! {
-                savestate::SaveState::export(&self.#name, stream, version);
+                #call
             }
         } else {
             quote! {
                 if #(!(#ncond))&&* {
-                    savestate::SaveState::export(&self.#name, stream, version);
+                    #call
                 }
             }
         }
@@ -135,16 +158,27 @@ fn save_state_derive_struct(name: syn::Ident, sf: syn::FieldsNamed)
         let ncond = &attr.neg_conditions;
         let post = &attr.post_import;
 
+        let call =
+            if let Some(import_fn) = attr.import_fn.as_ref() {
+                quote! {
+                    #import_fn(&mut self.#name, stream, version);
+                }
+            } else {
+                quote! {
+                    savestate::SaveState::import(&mut self.#name, stream,
+                                                 version);
+                }
+            };
+
         if ncond.is_empty() {
             quote! {
-                savestate::SaveState::import(&mut self.#name, stream, version);
+                #call
                 #(#post;)*
             }
         } else {
             quote! {
                 if #(!(#ncond))&&* {
-                    savestate::SaveState::import(&mut self.#name, stream,
-                                                 version);
+                    #call
                     #(#post;)*
                 }
             }
