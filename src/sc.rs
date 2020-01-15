@@ -243,10 +243,10 @@ impl SCThread {
         is.insert(UIScancode::CUp, false);
         is.insert(UIScancode::CDown, false);
         is.insert(UIScancode::CSkip, false);
-        is.insert(UIScancode::CLoad0, false);
-        is.insert(UIScancode::CLoad1, false);
-        is.insert(UIScancode::CSave0, false);
-        is.insert(UIScancode::CSave1, false);
+        is.insert(UIScancode::CLoad(0), false);
+        is.insert(UIScancode::CLoad(1), false);
+        is.insert(UIScancode::CSave(0), false);
+        is.insert(UIScancode::CSave(1), false);
 
         let mut bm = HashMap::new();
 
@@ -259,10 +259,10 @@ impl SCThread {
         bm.insert(SCButton::VirtUp, UIScancode::CUp);
         bm.insert(SCButton::VirtDown, UIScancode::CDown);
         bm.insert(SCButton::Next, UIScancode::CSkip);
-        bm.insert(SCButton::BottomLShoulder, UIScancode::CLoad0);
-        bm.insert(SCButton::BottomRShoulder, UIScancode::CLoad1);
-        bm.insert(SCButton::LGrip, UIScancode::CSave0);
-        bm.insert(SCButton::RGrip, UIScancode::CSave1);
+        bm.insert(SCButton::BottomLShoulder, UIScancode::CLoad(0));
+        bm.insert(SCButton::BottomRShoulder, UIScancode::CLoad(1));
+        bm.insert(SCButton::LGrip, UIScancode::CSave(0));
+        bm.insert(SCButton::RGrip, UIScancode::CSave(1));
 
         let obj = Self {
             dev: dev,

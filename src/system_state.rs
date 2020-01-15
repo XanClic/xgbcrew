@@ -132,11 +132,19 @@ pub enum UIScancode {
     CDown,
     CSkip,
 
-    CLoad0,
-    CLoad1,
+    CLoad(usize),
+    CSave(usize),
+}
 
-    CSave0,
-    CSave1,
+enum UIAction {
+    Key(KeypadKey, bool),
+
+    Skip(bool),
+
+    LoadState(usize),
+    SaveState(usize),
+
+    Quit,
 }
 
 pub enum UIEvent {
@@ -256,82 +264,126 @@ impl System {
         }
     }
 
-    fn fkey(&mut self, key: usize, down: bool) {
-        if down && !self.keyboard_state.alt && !self.keyboard_state.control {
-            self.do_save_state(key, self.keyboard_state.shift);
+    fn fkey(&mut self, index: usize) -> Option<UIAction> {
+        if !self.keyboard_state.alt && !self.keyboard_state.control {
+            if self.keyboard_state.shift {
+                Some(UIAction::SaveState(index))
+            } else {
+                Some(UIAction::LoadState(index))
+            }
+        } else {
+            None
+        }
+    }
+
+    fn translate_event(&mut self, event: UIEvent) -> Option<UIAction> {
+        if let Some(action) = match event {
+            UIEvent::Quit => Some(UIAction::Quit),
+
+            UIEvent::Key { key, down: true } => {
+                match key {
+                    UIScancode::F1  => self.fkey(0),
+                    UIScancode::F2  => self.fkey(1),
+                    UIScancode::F3  => self.fkey(2),
+                    UIScancode::F4  => self.fkey(3),
+                    UIScancode::F5  => self.fkey(4),
+                    UIScancode::F6  => self.fkey(5),
+                    UIScancode::F7  => self.fkey(6),
+                    UIScancode::F8  => self.fkey(7),
+                    UIScancode::F9  => self.fkey(8),
+                    UIScancode::F10 => self.fkey(9),
+                    UIScancode::F11 => self.fkey(10),
+                    UIScancode::F12 => self.fkey(11),
+
+                    UIScancode::CLoad(x) => Some(UIAction::LoadState(x)),
+                    UIScancode::CSave(x) => Some(UIAction::SaveState(x)),
+
+                    _ => None,
+                }
+            },
+
+            _ => None,
+        }
+        {
+            return Some(action);
+        }
+
+        match event {
+            UIEvent::Key { key, down } => {
+                match key {
+                    UIScancode::Shift => {
+                        self.keyboard_state.shift = down;
+                        None
+                    },
+
+                    UIScancode::Alt => {
+                        self.keyboard_state.alt = down;
+                        None
+                    },
+
+                    UIScancode::Control => {
+                        self.keyboard_state.control = down;
+                        None
+                    },
+
+                    UIScancode::Space | UIScancode::CSkip =>
+                        Some(UIAction::Skip(down)),
+
+                    UIScancode::X | UIScancode::CA =>
+                        Some(UIAction::Key(KeypadKey::A, down)),
+
+                    UIScancode::Z | UIScancode::CB =>
+                        Some(UIAction::Key(KeypadKey::B, down)),
+
+                    UIScancode::Return | UIScancode::CStart =>
+                        Some(UIAction::Key(KeypadKey::Start, down)),
+
+                    UIScancode::Backspace | UIScancode::CSelect =>
+                        Some(UIAction::Key(KeypadKey::Select, down)),
+
+                    UIScancode::Left | UIScancode::CLeft =>
+                        Some(UIAction::Key(KeypadKey::Left, down)),
+
+                    UIScancode::Right | UIScancode::CRight =>
+                        Some(UIAction::Key(KeypadKey::Right, down)),
+
+                    UIScancode::Up | UIScancode::CUp =>
+                        Some(UIAction::Key(KeypadKey::Up, down)),
+
+                    UIScancode::Down | UIScancode::CDown =>
+                        Some(UIAction::Key(KeypadKey::Down, down)),
+
+                    _ => None,
+                }
+            },
+
+            _ => None,
+        }
+    }
+
+    fn perform_ui_action(&mut self, action: UIAction) {
+        match action {
+            UIAction::Key(key, down) =>
+                self.sys_state.keypad.key_event(key, down),
+
+            UIAction::Skip(skip) =>
+                self.sys_state.realtime = !skip,
+
+            UIAction::LoadState(index) =>
+                self.do_save_state(index, false),
+
+            UIAction::SaveState(index) =>
+                self.do_save_state(index, true),
+
+            UIAction::Quit =>
+                std::process::exit(0),
         }
     }
 
     fn poll_events(&mut self) {
         while let Some(evt) = self.ui.poll_event() {
-            match evt {
-                UIEvent::Quit => {
-                    std::process::exit(0);
-                },
-
-                UIEvent::Key { key, down } => {
-                    let kp = &mut self.sys_state.keypad;
-
-                    match key {
-                        UIScancode::Space | UIScancode::CSkip => {
-                            self.sys_state.realtime = !down;
-                        },
-
-                        UIScancode::Shift => {
-                            self.keyboard_state.shift = down;
-                        },
-
-                        UIScancode::Alt => {
-                            self.keyboard_state.alt = down;
-                        },
-
-                        UIScancode::Control => {
-                            self.keyboard_state.control = down;
-                        },
-
-                        UIScancode::F1  => self.fkey(0, down),
-                        UIScancode::F2  => self.fkey(1, down),
-                        UIScancode::F3  => self.fkey(2, down),
-                        UIScancode::F4  => self.fkey(3, down),
-                        UIScancode::F5  => self.fkey(4, down),
-                        UIScancode::F6  => self.fkey(5, down),
-                        UIScancode::F7  => self.fkey(6, down),
-                        UIScancode::F8  => self.fkey(7, down),
-                        UIScancode::F9  => self.fkey(8, down),
-                        UIScancode::F10 => self.fkey(9, down),
-                        UIScancode::F11 => self.fkey(10, down),
-                        UIScancode::F12 => self.fkey(11, down),
-
-                        UIScancode::CLoad0 => self.do_save_state(0, false),
-                        UIScancode::CLoad1 => self.do_save_state(1, false),
-                        UIScancode::CSave0 => self.do_save_state(0, true),
-                        UIScancode::CSave1 => self.do_save_state(1, true),
-
-                        UIScancode::X | UIScancode::CA =>
-                            kp.key_event(KeypadKey::A, down),
-
-                        UIScancode::Z | UIScancode::CB =>
-                            kp.key_event(KeypadKey::B, down),
-
-                        UIScancode::Return | UIScancode::CStart =>
-                            kp.key_event(KeypadKey::Start, down),
-
-                        UIScancode::Backspace | UIScancode::CSelect =>
-                            kp.key_event(KeypadKey::Select, down),
-
-                        UIScancode::Left | UIScancode::CLeft =>
-                            kp.key_event(KeypadKey::Left, down),
-
-                        UIScancode::Right | UIScancode::CRight =>
-                            kp.key_event(KeypadKey::Right, down),
-
-                        UIScancode::Up | UIScancode::CUp =>
-                            kp.key_event(KeypadKey::Up, down),
-
-                        UIScancode::Down | UIScancode::CDown =>
-                            kp.key_event(KeypadKey::Down, down),
-                    }
-                },
+            if let Some(action) = self.translate_event(evt) {
+                self.perform_ui_action(action);
             }
         }
     }
