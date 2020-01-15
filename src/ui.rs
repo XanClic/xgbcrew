@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 
+use crate::sc::SC;
 use crate::system_state::{AudioOutputParams, UIEvent, UIScancode};
 
 
@@ -15,6 +16,8 @@ pub struct UI {
     sgb_border_txt: sdl2::render::Texture<'static>,
 
     audio_dev: Option<sdl2::audio::AudioDevice<AudioOutput>>,
+
+    sc: Option<SC>,
 }
 
 impl UI {
@@ -58,6 +61,8 @@ impl UI {
             sgb_border_txt: sgb_border_txt,
 
             audio_dev: None,
+
+            sc: SC::new(),
         }
     }
 
@@ -222,6 +227,8 @@ impl UI {
             } else {
                 self.poll_event()
             }
+        } else if let Some(sc) = &mut self.sc {
+            sc.poll_event()
         } else {
             None
         }
@@ -245,6 +252,12 @@ impl UI {
         };
 
         self.sgb_border_txt.update(None, pixels8, 256 * 4).unwrap();
+    }
+
+    pub fn rumble(&mut self, state: bool) {
+        if let Some(sc) = &mut self.sc {
+            sc.rumble(state);
+        }
     }
 }
 

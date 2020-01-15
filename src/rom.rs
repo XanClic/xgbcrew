@@ -64,6 +64,9 @@ pub struct Cartridge {
     mbc3_clock_sel: u8,
     rtc: Option<RamRTCData>,
     rtc_latched: Option<SystemTime>,
+
+    #[savestate(skip_if("version < 4"))]
+    pub rumble_state: bool,
 }
 
 impl Cartridge {
@@ -81,6 +84,8 @@ impl Cartridge {
             mbc3_clock_sel: 0,
             rtc: None,
             rtc_latched: None,
+
+            rumble_state: false,
         }
     }
 
@@ -448,7 +453,10 @@ impl Cartridge {
 
             0x4000 | 0x5000 => {
                 if c.extram {
-                    /* TODO: Rumble */
+                    if c.rumble {
+                        c.rumble_state = val & (1 << 3) != 0;
+                    }
+
                     let mask = if c.rumble { 0x07 } else { 0x0f };
                     let bank = val as usize & mask;
                     addr_space.extram_bank = Some(bank % c.extram_size);
@@ -619,6 +627,8 @@ pub fn load_rom(addr_space: &mut AddressSpace) -> SystemParams {
         mbc3_clock_sel: 0,
         rtc: rtc_data,
         rtc_latched: None,
+
+        rumble_state: false,
     };
 
     Cartridge::init_map(addr_space);

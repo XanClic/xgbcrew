@@ -1,7 +1,7 @@
 use crate::io::{io_get_reg, io_set_reg};
 use crate::io::int::IRQ;
 use crate::sgb::sgb_pulse;
-use crate::system_state::{IOReg, SystemState, UIScancode};
+use crate::system_state::{IOReg, SystemState};
 
 
 #[derive(SaveState)]
@@ -22,6 +22,18 @@ pub struct KeypadState {
 
     #[savestate(skip_if("version < 1"))]
     controller_index: usize, /* Used by SGB */
+}
+
+pub enum KeypadKey {
+    A,
+    B,
+    Start,
+    Select,
+
+    Left,
+    Right,
+    Up,
+    Down,
 }
 
 impl KeypadState {
@@ -61,20 +73,18 @@ impl KeypadState {
         }
     }
 
-    pub fn key_event(&mut self, key: UIScancode, down: bool) {
+    pub fn key_event(&mut self, key: KeypadKey, down: bool) {
         let line =
             match key {
-                UIScancode::Right     => (1 << 0),
-                UIScancode::Left      => (1 << 1),
-                UIScancode::Up        => (1 << 2),
-                UIScancode::Down      => (1 << 3),
+                KeypadKey::Right    => (1 << 0),
+                KeypadKey::Left     => (1 << 1),
+                KeypadKey::Up       => (1 << 2),
+                KeypadKey::Down     => (1 << 3),
 
-                UIScancode::X         => (1 << 4),
-                UIScancode::Z         => (1 << 5),
-                UIScancode::Backspace => (1 << 6),
-                UIScancode::Return    => (1 << 7),
-
-                _ => return
+                KeypadKey::A        => (1 << 4),
+                KeypadKey::B        => (1 << 5),
+                KeypadKey::Select   => (1 << 6),
+                KeypadKey::Start    => (1 << 7),
             };
 
         if down {

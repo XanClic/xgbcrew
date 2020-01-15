@@ -4,7 +4,7 @@ use std::sync::mpsc::Sender;
 use crate::address_space::AddressSpace;
 use crate::cpu::CPU;
 use crate::io;
-use crate::io::keypad::KeypadState;
+use crate::io::keypad::{KeypadState, KeypadKey};
 use crate::io::lcd::DisplayState;
 use crate::io::sound::SoundState;
 use crate::io::timer::TimerState;
@@ -12,7 +12,7 @@ use crate::sgb::SGBState;
 use crate::ui::UI;
 
 
-const SAVE_STATE_VERSION: u64 = 3;
+const SAVE_STATE_VERSION: u64 = 4;
 
 #[allow(dead_code)]
 pub enum IOReg {
@@ -91,6 +91,7 @@ pub enum IOReg {
     IE      = 0xff,
 }
 
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub enum UIScancode {
     X,
     Z,
@@ -120,6 +121,22 @@ pub enum UIScancode {
     F10,
     F11,
     F12,
+
+    CA,
+    CB,
+    CStart,
+    CSelect,
+    CLeft,
+    CRight,
+    CUp,
+    CDown,
+    CSkip,
+
+    CLoad0,
+    CLoad1,
+
+    CSave0,
+    CSave1,
 }
 
 pub enum UIEvent {
@@ -211,15 +228,11 @@ impl System {
         }
     }
 
-    fn fkey(&mut self, key: usize, down: bool) {
-        if !down || self.keyboard_state.alt || self.keyboard_state.control {
-            return;
-        }
-
-        let fname = format!("{}.ss{}", self.base_path, key);
+    fn do_save_state(&mut self, index: usize, save: bool) {
+        let fname = format!("{}.ss{}", self.base_path, index);
 
         let mut opts = std::fs::OpenOptions::new();
-        if self.keyboard_state.shift {
+        if save {
             opts.write(true).create(true);
         } else {
             opts.read(true);
@@ -234,12 +247,92 @@ impl System {
                 }
             };
 
-        if self.keyboard_state.shift {
+        if save {
             savestate::export_root(self, &mut file, SAVE_STATE_VERSION);
-            println!("Exported save state {} to {}", key + 1, fname);
+            println!("Exported save state {} to {}", index + 1, fname);
         } else {
             savestate::import_root(self, &mut file, SAVE_STATE_VERSION);
-            println!("Imported save state {} from {}", key + 1, fname);
+            println!("Imported save state {} from {}", index + 1, fname);
+        }
+    }
+
+    fn fkey(&mut self, key: usize, down: bool) {
+        if down && !self.keyboard_state.alt && !self.keyboard_state.control {
+            self.do_save_state(key, self.keyboard_state.shift);
+        }
+    }
+
+    fn poll_events(&mut self) {
+        while let Some(evt) = self.ui.poll_event() {
+            match evt {
+                UIEvent::Quit => {
+                    std::process::exit(0);
+                },
+
+                UIEvent::Key { key, down } => {
+                    let kp = &mut self.sys_state.keypad;
+
+                    match key {
+                        UIScancode::Space | UIScancode::CSkip => {
+                            self.sys_state.realtime = !down;
+                        },
+
+                        UIScancode::Shift => {
+                            self.keyboard_state.shift = down;
+                        },
+
+                        UIScancode::Alt => {
+                            self.keyboard_state.alt = down;
+                        },
+
+                        UIScancode::Control => {
+                            self.keyboard_state.control = down;
+                        },
+
+                        UIScancode::F1  => self.fkey(0, down),
+                        UIScancode::F2  => self.fkey(1, down),
+                        UIScancode::F3  => self.fkey(2, down),
+                        UIScancode::F4  => self.fkey(3, down),
+                        UIScancode::F5  => self.fkey(4, down),
+                        UIScancode::F6  => self.fkey(5, down),
+                        UIScancode::F7  => self.fkey(6, down),
+                        UIScancode::F8  => self.fkey(7, down),
+                        UIScancode::F9  => self.fkey(8, down),
+                        UIScancode::F10 => self.fkey(9, down),
+                        UIScancode::F11 => self.fkey(10, down),
+                        UIScancode::F12 => self.fkey(11, down),
+
+                        UIScancode::CLoad0 => self.do_save_state(0, false),
+                        UIScancode::CLoad1 => self.do_save_state(1, false),
+                        UIScancode::CSave0 => self.do_save_state(0, true),
+                        UIScancode::CSave1 => self.do_save_state(1, true),
+
+                        UIScancode::X | UIScancode::CA =>
+                            kp.key_event(KeypadKey::A, down),
+
+                        UIScancode::Z | UIScancode::CB =>
+                            kp.key_event(KeypadKey::B, down),
+
+                        UIScancode::Return | UIScancode::CStart =>
+                            kp.key_event(KeypadKey::Start, down),
+
+                        UIScancode::Backspace | UIScancode::CSelect =>
+                            kp.key_event(KeypadKey::Select, down),
+
+                        UIScancode::Left | UIScancode::CLeft =>
+                            kp.key_event(KeypadKey::Left, down),
+
+                        UIScancode::Right | UIScancode::CRight =>
+                            kp.key_event(KeypadKey::Right, down),
+
+                        UIScancode::Up | UIScancode::CUp =>
+                            kp.key_event(KeypadKey::Up, down),
+
+                        UIScancode::Down | UIScancode::CDown =>
+                            kp.key_event(KeypadKey::Down, down),
+                    }
+                },
+            }
         }
     }
 
@@ -259,48 +352,9 @@ impl System {
                 self.ui.set_sgb_border(&self.sys_state.sgb_state.border_pixels);
             }
 
-            while let Some(evt) = self.ui.poll_event() {
-                match evt {
-                    UIEvent::Quit => {
-                        std::process::exit(0);
-                    },
+            self.ui.rumble(self.sys_state.addr_space.cartridge.rumble_state);
 
-                    UIEvent::Key { key, down } => {
-                        match key {
-                            UIScancode::Space => {
-                                self.sys_state.realtime = !down;
-                            },
-
-                            UIScancode::Shift => {
-                                self.keyboard_state.shift = down;
-                            },
-
-                            UIScancode::Alt => {
-                                self.keyboard_state.alt = down;
-                            },
-
-                            UIScancode::Control => {
-                                self.keyboard_state.control = down;
-                            },
-
-                            UIScancode::F1  => self.fkey(0, down),
-                            UIScancode::F2  => self.fkey(1, down),
-                            UIScancode::F3  => self.fkey(2, down),
-                            UIScancode::F4  => self.fkey(3, down),
-                            UIScancode::F5  => self.fkey(4, down),
-                            UIScancode::F6  => self.fkey(5, down),
-                            UIScancode::F7  => self.fkey(6, down),
-                            UIScancode::F8  => self.fkey(7, down),
-                            UIScancode::F9  => self.fkey(8, down),
-                            UIScancode::F10 => self.fkey(9, down),
-                            UIScancode::F11 => self.fkey(10, down),
-                            UIScancode::F12 => self.fkey(11, down),
-
-                            _ => self.sys_state.keypad.key_event(key, down),
-                        }
-                    },
-                }
-            }
+            self.poll_events();
         }
     }
 
