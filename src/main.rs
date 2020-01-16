@@ -20,7 +20,7 @@ use system_state::{System, SystemState};
 use ui::UI;
 
 
-fn main() {
+fn real_main() {
     let argv: Vec<String> = env::args().collect();
 
     if argv.len() < 2 {
@@ -45,4 +45,27 @@ fn main() {
     let mut system = System::new(system_state, UI::new(), base_path);
 
     system.main_loop();
+}
+
+#[cfg(not(target_os = "windows"))]
+fn main() {
+    real_main();
+}
+
+#[cfg(target_os = "windows")]
+fn main() {
+    let main_thread = std::thread::Builder::new().name(String::from("main"))
+                                                 .stack_size(4 << 20)
+                                                 .spawn(|| { real_main() })
+                                                 .unwrap();
+
+    if let Err(e) = main_thread.join() {
+        if let Some(s) = e.downcast_ref::<String>() {
+            panic!("{}", s);
+        } else if let Some(s) = e.downcast_ref::<&str>() {
+            panic!("{}", s);
+        } else {
+            panic!("{:?}", e);
+        }
+    }
 }
