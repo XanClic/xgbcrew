@@ -23,7 +23,7 @@ pub struct AddressSpace {
     pub extram_rw: bool,
     pub wram_bank: usize,
 
-    pub full_vram: *mut u8,
+    pub full_vram: &'static mut [u8; 0x4000],
 
     rom0_mapped: Option<()>,
     romn_mapped: Option<usize>,
@@ -77,7 +77,9 @@ impl AddressSpace {
             extram_rw: false,
             wram_bank: 1,
 
-            full_vram: std::ptr::null_mut(),
+            full_vram: unsafe {
+                &mut *(std::ptr::null_mut() as *mut [u8; 0x4000])
+            },
 
             rom0_mapped: None,
             romn_mapped: None,
@@ -267,10 +269,13 @@ impl AddressSpace {
         if self.vram_shm.is_none() {
             self.vram_shm = Some(Self::create_shm("/xcgbcrew-vram\0", 0x4000));
 
-            self.full_vram = Self::mmap(0, self.vram_shm.unwrap(), 0, 0x4000,
-                                        libc::PROT_READ | libc::PROT_WRITE,
-                                        libc::MAP_SHARED, true)
+            let vram_ptr = Self::mmap(0, self.vram_shm.unwrap(), 0, 0x4000,
+                                      libc::PROT_READ | libc::PROT_WRITE,
+                                      libc::MAP_SHARED, true)
                              as *mut u8;
+            self.full_vram = unsafe {
+                &mut *(vram_ptr as *mut [u8; 0x4000])
+            };
         }
     }
 
@@ -425,11 +430,7 @@ impl SaveState for AddressSpace {
             Self::export_shm(self.extram_file.as_raw_fd(), extram_size, stream);
         }
 
-        let vram_slice = unsafe {
-            std::slice::from_raw_parts(self.full_vram, 0x4000)
-        };
-
-        stream.write_all(&vram_slice).unwrap();
+        stream.write_all(self.full_vram).unwrap();
 
         SaveState::export(self.romn_mapped.as_ref().unwrap(), stream, version);
         SaveState::export(self.vram_mapped.as_ref().unwrap(), stream, version);
@@ -449,11 +450,7 @@ impl SaveState for AddressSpace {
             Self::import_shm(self.extram_file.as_raw_fd(), extram_size, stream);
         }
 
-        let mut vram_slice = unsafe {
-            std::slice::from_raw_parts_mut(self.full_vram, 0x4000)
-        };
-
-        stream.read_exact(&mut vram_slice).unwrap();
+        stream.read_exact(self.full_vram).unwrap();
 
         SaveState::import(&mut self.rom_bank, stream, version);
         SaveState::import(&mut self.vram_bank, stream, version);

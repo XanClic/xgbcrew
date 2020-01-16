@@ -21,11 +21,11 @@ pub struct DisplayState {
     pub lcd_pixels: [u32; 160 * 144],
 
     enabled: bool,
-    wnd_tile_map: isize,
+    wnd_tile_map: usize,
     wnd_enabled: bool,
-    tile_data: isize,
-    bg_tile_map: isize,
-    obj_height: isize,
+    tile_data: usize,
+    bg_tile_map: usize,
+    obj_height: usize,
     obj_enabled: bool,
     bg_enabled: bool,
     obj_prio: bool,
@@ -230,33 +230,33 @@ impl DisplayState {
 }
 
 
-fn fetch_tile_flags(map: (*const u8, *const u8), tile: isize, cgb: bool) -> u8 {
+fn fetch_tile_flags(full_vram: &[u8; 0x4000], tile_map: usize,
+                    tile: usize, cgb: bool)
+    -> u8
+{
     if cgb {
-        unsafe {
-            *map.1.offset(tile)
-        }
+        full_vram[tile_map + 0x2000 + tile]
     } else {
         0
     }
 }
 
-fn fetch_tile_obj_data(data_ptr: *const u8, flags: u8, ry: isize, height: isize)
+fn fetch_tile_obj_data(full_vram: &[u8; 0x4000], tile_data_ofs: usize,
+                       flags: u8, ry: usize, height: usize)
     -> (u8, u8)
 {
-    unsafe {
-        if flags & (1 << 6) == 0 {
-            (*data_ptr.offset(ry * 2 + 0),
-             *data_ptr.offset(ry * 2 + 1))
-        } else {
-            (*data_ptr.offset((height - 1 - ry) * 2 + 0),
-             *data_ptr.offset((height - 1 - ry) * 2 + 1))
-        }
+    if flags & (1 << 6) == 0 {
+        (full_vram[tile_data_ofs + ry * 2 + 0],
+         full_vram[tile_data_ofs + ry * 2 + 1])
+    } else {
+        (full_vram[tile_data_ofs + (height - 1 - ry) * 2 + 0],
+         full_vram[tile_data_ofs + (height - 1 - ry) * 2 + 1])
     }
 }
 
-fn get_tile_data_and_pal(map: (*const u8, *const u8), tile_data: *const u8,
-                         tile_data_signed: bool, flags: u8, tile: isize,
-                         ry: isize, height: isize, cgb: bool)
+fn get_tile_data_and_pal(full_vram: &[u8; 0x4000], tile_map: usize,
+                         tile_data: usize, tile_data_signed: bool, flags: u8,
+                         tile: usize, ry: usize, height: usize, cgb: bool)
     -> ((u8, u8), usize)
 {
     let (data_ofs, pal_bi) =
@@ -267,17 +267,16 @@ fn get_tile_data_and_pal(map: (*const u8, *const u8), tile_data: *const u8,
             (0, 0)
         };
 
-    let data_ptr =
-        unsafe {
-            let mapping = *map.0.offset(tile);
-            if tile_data_signed {
-                tile_data.offset(mapping as i8 as isize * 16 + data_ofs)
-            } else {
-                tile_data.offset(mapping as isize * 16 + data_ofs)
-            }
+    let tile_ofs =
+        if tile_data_signed {
+            (full_vram[tile_map + tile] as i8 as isize * 16) as usize
+        } else {
+            full_vram[tile_map + tile] as usize * 16
         };
 
-    (fetch_tile_obj_data(data_ptr, flags, ry, height), pal_bi)
+    (fetch_tile_obj_data(full_vram, tile_data.wrapping_add(tile_ofs) + data_ofs,
+                         flags, ry, height),
+     pal_bi)
 }
 
 fn get_tile_obj_pixel(data: (u8, u8), rx: u8, flags: u8) -> usize {
@@ -312,33 +311,26 @@ fn draw_bg_line(sys_state: &mut SystemState,
     let eofs = sofs + 160;
     let pixels = &mut d.lcd_pixels[sofs..eofs];
 
-    let bg_tile_map = unsafe {
-        (sys_state.addr_space.full_vram.offset(d.bg_tile_map) as *const u8,
-         sys_state.addr_space.full_vram.offset(d.bg_tile_map + 0x2000)
-             as *const u8)
-    };
-
-    let tile_data = unsafe {
-        sys_state.addr_space.full_vram.offset(d.tile_data) as *const u8
-    };
-
+    let full_vram = &sys_state.addr_space.full_vram;
     let tile_data_signed = d.tile_data == 0x1000;
 
     let sx = io_get_reg(IOReg::SCX);
     let wx = io_get_reg(IOReg::WX).wrapping_sub(7);
     let mut bx = sx & 0xf8;
     let ex = sx.wrapping_add(167) & 0xf8;
-    let by = (line & 0xf8) as isize;
-    let ry = (line & 0x07) as isize;
-    let mut tile = (by << 2) + ((bx as isize) >> 3);
+    let by = (line & 0xf8) as usize;
+    let ry = (line & 0x07) as usize;
+    let mut tile = (by << 2) + ((bx as usize) >> 3);
 
     while bx != ex {
         if window && wx <= bx {
             break;
         }
 
-        let flags = fetch_tile_flags(bg_tile_map, tile, sys_state.cgb);
-        let (data, mut pal_bi) = get_tile_data_and_pal(bg_tile_map, tile_data,
+        let flags = fetch_tile_flags(full_vram, d.bg_tile_map,
+                                     tile, sys_state.cgb);
+        let (data, mut pal_bi) = get_tile_data_and_pal(full_vram, d.bg_tile_map,
+                                                       d.tile_data,
                                                        tile_data_signed, flags,
                                                        tile, ry, 8,
                                                        sys_state.cgb);
@@ -394,25 +386,18 @@ fn draw_wnd_line(sys_state: &mut SystemState,
     let by = (screen_line - wy) & 0xf8;
     let ry = (screen_line - wy) & 0x07;
 
-    let wnd_tile_map = unsafe {
-        (sys_state.addr_space.full_vram.offset(d.wnd_tile_map) as *const u8,
-         sys_state.addr_space.full_vram.offset(d.wnd_tile_map + 0x2000)
-             as *const u8)
-    };
-
-    let tile_data = unsafe {
-        sys_state.addr_space.full_vram.offset(d.tile_data) as *const u8
-    };
-
+    let full_vram = &sys_state.addr_space.full_vram;
     let tile_data_signed = d.tile_data == 0x1000;
 
-    let mut tile = (by as isize) << 2;
+    let mut tile = (by as usize) << 2;
 
     for bx in (wx..160).step_by(8) {
-        let flags = fetch_tile_flags(wnd_tile_map, tile, sys_state.cgb);
-        let (data, mut pal_bi) = get_tile_data_and_pal(wnd_tile_map, tile_data,
+        let flags = fetch_tile_flags(full_vram, d.wnd_tile_map,
+                                     tile, sys_state.cgb);
+        let (data, mut pal_bi) = get_tile_data_and_pal(full_vram, d.wnd_tile_map,
+                                                       d.tile_data,
                                                        tile_data_signed, flags,
-                                                       tile, ry as isize, 8,
+                                                       tile, ry as usize, 8,
                                                        sys_state.cgb);
 
         for rx in 0..8 {
@@ -450,6 +435,7 @@ fn draw_obj_line(sys_state: &mut SystemState, screen_line: u8,
     let eofs = sofs + 160;
     let pixels = &mut d.lcd_pixels[sofs..eofs];
     let oam = get_raw_read_addr(0xfe00) as *const u8;
+    let full_vram = &sys_state.addr_space.full_vram;
 
     let mut count = 0;
 
@@ -460,7 +446,7 @@ fn draw_obj_line(sys_state: &mut SystemState, screen_line: u8,
         let bx = unsafe { *oam.offset(oam_bi + 1) } as isize - 8;
 
         if by > screen_line as isize ||
-           by + d.obj_height <= screen_line as isize
+           by + d.obj_height as isize <= screen_line as isize
         {
             continue;
         }
@@ -474,7 +460,7 @@ fn draw_obj_line(sys_state: &mut SystemState, screen_line: u8,
             continue;
         }
 
-        let mut ofs = unsafe { *oam.offset(oam_bi + 2) } as isize * 16;
+        let mut ofs = unsafe { *oam.offset(oam_bi + 2) } as usize * 16;
         let flags = unsafe { *oam.offset(oam_bi + 3) };
 
         if d.obj_height == 16 {
@@ -490,13 +476,8 @@ fn draw_obj_line(sys_state: &mut SystemState, screen_line: u8,
                  ((flags >> 4) & 1) as usize)
             };
 
-        let data_ptr =
-            unsafe {
-                sys_state.addr_space.full_vram.offset(data_ofs + ofs)
-            };
-
-        let data = fetch_tile_obj_data(data_ptr, flags,
-                                       screen_line as isize - by,
+        let data = fetch_tile_obj_data(full_vram, data_ofs + ofs, flags,
+                                       (screen_line as isize - by) as usize,
                                        d.obj_height);
 
         for rx in 0..8 {
