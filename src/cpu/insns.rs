@@ -4,7 +4,7 @@
 use crate::{mem, regs, regs8, regs16, regs16_split, flags, single_flag_mask};
 use crate::address_space::{AS_BASE, U8Split};
 use crate::cpu::{CPU, IIOperation};
-use crate::io::{io_get_reg, io_read, io_set_reg, io_write};
+use crate::io::{IOSpace, io_read, io_write};
 use crate::system_state::{IOReg, SystemState};
 
 
@@ -62,16 +62,22 @@ fn prefix0x10(cpu: &mut CPU, sys_state: &mut SystemState) {
                   format!("Unknown opcode 0x10 0x{:02x}", sub_op).as_str());
     }
 
+    let mut key1 = sys_state.io_get_reg(IOReg::KEY1);
+
     /* STOP */
-    if io_get_reg(IOReg::KEY1) & 0x01 == 0 {
+    if key1 & 0x01 == 0 {
         cpu_panic(cpu, "STOP");
     }
 
     sys_state.double_speed = !sys_state.double_speed;
 
-    io_set_reg(IOReg::KEY1,
-               (io_get_reg(IOReg::KEY1) & !0x80) |
-               (if sys_state.double_speed { 0x80 } else { 0x00 }));
+    if sys_state.double_speed {
+        key1 |= 0x80;
+    } else {
+        key1 &= !0x80;
+    }
+
+    sys_state.io_set_reg(IOReg::KEY1, key1);
 
     println!("Using {} speed",
              if sys_state.double_speed { "double" } else { "single" });

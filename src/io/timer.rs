@@ -1,4 +1,4 @@
-use crate::io::{io_get_reg, io_set_addr, io_set_reg};
+use crate::io::IOSpace;
 use crate::io::int::IRQ;
 use crate::system_state::{IOReg, SystemState};
 
@@ -27,11 +27,12 @@ impl TimerState {
 
 pub fn add_cycles(sys_state: &mut SystemState, count: u32) {
     let timer = &mut sys_state.timer;
+    let addr_space = &mut sys_state.addr_space;
 
     timer.div_counter += count;
     while timer.div_counter >= 64 {
-        let cur = io_get_reg(IOReg::DIV);
-        io_set_reg(IOReg::DIV, cur.wrapping_add(1u8));
+        let cur = addr_space.io_get_reg(IOReg::DIV);
+        addr_space.io_set_reg(IOReg::DIV, cur.wrapping_add(1u8));
 
         timer.div_counter -= 64;
     }
@@ -39,17 +40,17 @@ pub fn add_cycles(sys_state: &mut SystemState, count: u32) {
     if timer.timer_enabled {
         timer.timer_counter += count;
         while timer.timer_counter >= timer.timer_divider {
-            let cur = io_get_reg(IOReg::TIMA);
+            let cur = addr_space.io_get_reg(IOReg::TIMA);
             let (mut res, overflow) = cur.overflowing_add(1u8);
 
             if overflow {
-                io_set_reg(IOReg::IF,
-                           io_get_reg(IOReg::IF) | (IRQ::Timer as u8));
+                let iflag = addr_space.io_get_reg(IOReg::IF);
+                addr_space.io_set_reg(IOReg::IF, iflag | (IRQ::Timer as u8));
 
-                res = io_get_reg(IOReg::TMA);
+                res = addr_space.io_get_reg(IOReg::TMA);
             }
 
-            io_set_reg(IOReg::TIMA, res);
+            addr_space.io_set_reg(IOReg::TIMA, res);
             timer.timer_counter -= timer.timer_divider;
         }
     }
@@ -74,5 +75,5 @@ pub fn timer_write(sys_state: &mut SystemState, addr: u16, mut val: u8)
         };
     }
 
-    io_set_addr(addr, val);
+    sys_state.io_set_addr(addr, val);
 }

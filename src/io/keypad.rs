@@ -1,4 +1,5 @@
-use crate::io::{io_get_reg, io_set_reg};
+use crate::address_space::AddressSpace;
+use crate::io::IOSpace;
 use crate::io::int::IRQ;
 use crate::sgb::sgb_pulse;
 use crate::system_state::{IOReg, SystemState};
@@ -11,7 +12,6 @@ pub struct KeypadState {
     #[savestate(skip)]
     all_lines: u8,
 
-    #[savestate(post_import("self.update_p1()"))]
     mask: u8,
 
     #[savestate(skip_if("version < 1"))]
@@ -49,10 +49,10 @@ impl KeypadState {
     }
 
     pub fn init_system_state(sys_state: &mut SystemState) {
-        sys_state.keypad.update_p1();
+        sys_state.keypad.update_p1(&mut sys_state.addr_space);
     }
 
-    fn update_p1(&self) {
+    fn update_p1(&self, addr_space: &mut AddressSpace) {
         let p14_15 =
             (if self.mask & 0x0f == 0x00 { 0x10 } else { 0x00 }) |
             (if self.mask & 0xf0 == 0x00 { 0x20 } else { 0x00 });
@@ -67,13 +67,19 @@ impl KeypadState {
 
         if self.mask == 0 {
             let ci = self.controller_index as u8;
-            io_set_reg(IOReg::P1, p14_15 | (0xf - ci));
+            addr_space.io_set_reg(IOReg::P1, p14_15 | (0xf - ci));
         } else {
-            io_set_reg(IOReg::P1, p14_15 | !(nibbles.0 | nibbles.1));
+            addr_space.io_set_reg(IOReg::P1, p14_15 | !(nibbles.0 | nibbles.1));
         }
     }
 
-    pub fn key_event(&mut self, key: KeypadKey, down: bool) {
+    pub fn post_import(&self, addr_space: &mut AddressSpace) {
+        self.update_p1(addr_space);
+    }
+
+    pub fn key_event(&mut self, addr_space: &mut AddressSpace,
+                     key: KeypadKey, down: bool)
+    {
         let line =
             match key {
                 KeypadKey::Right    => (1 << 0),
@@ -91,14 +97,14 @@ impl KeypadState {
             self.all_lines |= line;
 
             if line & self.mask != 0 {
-                io_set_reg(IOReg::IF,
-                           io_get_reg(IOReg::IF) | (IRQ::Input as u8));
+                let iflag = addr_space.io_get_reg(IOReg::IF);
+                addr_space.io_set_reg(IOReg::IF, iflag | (IRQ::Input as u8));
             }
         } else {
             self.all_lines &= !line;
         }
 
-        self.update_p1();
+        self.update_p1(addr_space);
     }
 
     pub fn set_controller_count(&mut self, count: usize) {
@@ -124,7 +130,7 @@ pub fn p1_write(sys_state: &mut SystemState, _: u16, val: u8)
         kp.controller_index %= kp.controller_count;
     }
 
-    kp.update_p1();
+    kp.update_p1(&mut sys_state.addr_space);
 
     if sys_state.sgb {
         if !kp.sgb_cooldown && (np14 || np15) {

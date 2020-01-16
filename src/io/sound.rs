@@ -1,7 +1,8 @@
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{channel, Sender, Receiver};
 
-use crate::io::{io_get_addr, io_get_reg, io_set_addr, io_set_reg};
+use crate::address_space::AddressSpace;
+use crate::io::IOSpace;
 use crate::system_state::{AudioOutputParams, IOReg, SystemState};
 
 /*
@@ -98,15 +99,14 @@ impl ToneSweep {
         ts
     }
 
-    fn set_enabled(&mut self, enabled: bool) {
+    fn set_enabled(&mut self, addr_space: &mut AddressSpace, enabled: bool) {
         self.enabled = enabled;
 
+        let nr52 = addr_space.io_get_reg(IOReg::NR52);
         if enabled {
-            io_set_reg(IOReg::NR52,
-                       io_get_reg(IOReg::NR52) | (1 << self.channel));
+            addr_space.io_set_reg(IOReg::NR52, nr52 | (1 << self.channel));
         } else {
-            io_set_reg(IOReg::NR52,
-                       io_get_reg(IOReg::NR52) & !(1 << self.channel));
+            addr_space.io_set_reg(IOReg::NR52, nr52 & !(1 << self.channel));
         }
     }
 
@@ -163,24 +163,24 @@ impl ToneSweep {
         }
     }
 
-    fn initialize(&mut self) {
+    fn initialize(&mut self, addr_space: &mut AddressSpace) {
         self.update_envelope();
         self.update_len();
         self.update_duty();
         self.update_freq(true);
         self.update_sweep();
 
-        self.set_enabled(true);
+        self.set_enabled(addr_space, true);
     }
 
-    fn get_sample(&mut self) -> f32 {
+    fn get_sample(&mut self, addr_space: &mut AddressSpace) -> f32 {
         if !self.enabled {
             return 0.0;
         }
 
         if self.samples_limited {
             if self.sample_count == 0 {
-                self.set_enabled(false);
+                self.set_enabled(addr_space, false);
                 return 0.0;
             }
             self.sample_count -= 1;
@@ -213,7 +213,7 @@ impl ToneSweep {
                 if self.sweep_up {
                     self.freq_x += self.freq_x >> self.sweep_n;
                     if self.freq_x >= 2048 {
-                        self.set_enabled(false);
+                        self.set_enabled(addr_space, false);
                         return 0.0;
                     }
                 } else {
@@ -287,15 +287,14 @@ impl Wave {
         }
     }
 
-    fn set_enabled(&mut self, enabled: bool) {
+    fn set_enabled(&mut self, addr_space: &mut AddressSpace, enabled: bool) {
         self.enabled = enabled;
 
+        let nr52 = addr_space.io_get_reg(IOReg::NR52);
         if enabled {
-            io_set_reg(IOReg::NR52,
-                       io_get_reg(IOReg::NR52) | (1 << self.channel));
+            addr_space.io_set_reg(IOReg::NR52, nr52 | (1 << self.channel));
         } else {
-            io_set_reg(IOReg::NR52,
-                       io_get_reg(IOReg::NR52) & !(1 << self.channel));
+            addr_space.io_set_reg(IOReg::NR52, nr52 & !(1 << self.channel));
         }
     }
 
@@ -324,38 +323,38 @@ impl Wave {
             };
     }
 
-    fn pull_regs(&mut self) {
+    fn pull_regs(&mut self, addr_space: &mut AddressSpace) {
         if self.sample_i == 0 {
             for i in 0..16 {
-                self.samples[i] = io_get_addr(0x30 + i as u16);
+                self.samples[i] = addr_space.io_get_addr(0x30 + i as u16);
             }
             self.vol = self.next_vol;
             self.sample_time = self.next_sample_time;
         }
     }
 
-    fn initialize(&mut self) {
+    fn initialize(&mut self, addr_space: &mut AddressSpace) {
         self.update_len();
         self.update_freq();
         self.update_vol();
 
-        self.set_enabled(true);
+        self.set_enabled(addr_space, true);
     }
 
-    fn get_sample(&mut self) -> f32 {
+    fn get_sample(&mut self, addr_space: &mut AddressSpace) -> f32 {
         if !self.enabled {
             return 0.0;
         }
 
         if self.soft_stopped && self.sample_i == 0 {
-            self.set_enabled(false);
+            self.set_enabled(addr_space, false);
             return 0.0;
         }
 
         if self.out_samples_limited {
             if self.out_sample_count == 0 {
                 if self.sample_i == 0 {
-                    self.set_enabled(false);
+                    self.set_enabled(addr_space, false);
                     return 0.0;
                 }
             } else {
@@ -372,7 +371,7 @@ impl Wave {
             self.sample_i = (self.sample_i + 1) % 32;
             self.sample_counter -= self.sample_time;
 
-            self.pull_regs();
+            self.pull_regs(addr_space);
         }
 
         sample as f32 * self.vol
@@ -432,15 +431,14 @@ impl Noise {
         }
     }
 
-    fn set_enabled(&mut self, enabled: bool) {
+    fn set_enabled(&mut self, addr_space: &mut AddressSpace, enabled: bool) {
         self.enabled = enabled;
 
+        let nr52 = addr_space.io_get_reg(IOReg::NR52);
         if enabled {
-            io_set_reg(IOReg::NR52,
-                       io_get_reg(IOReg::NR52) | (1 << self.channel));
+            addr_space.io_set_reg(IOReg::NR52, nr52 | (1 << self.channel));
         } else {
-            io_set_reg(IOReg::NR52,
-                       io_get_reg(IOReg::NR52) & !(1 << self.channel));
+            addr_space.io_set_reg(IOReg::NR52, nr52 & !(1 << self.channel));
         }
     }
 
@@ -477,7 +475,7 @@ impl Noise {
         }
     }
 
-    fn initialize(&mut self) {
+    fn initialize(&mut self, addr_space: &mut AddressSpace) {
         self.update_envelope();
         self.update_len();
         self.update_freq();
@@ -490,7 +488,7 @@ impl Noise {
         }
         self.output_counter = 0.0;
 
-        self.set_enabled(true);
+        self.set_enabled(addr_space, true);
     }
 
     fn shift(&mut self) {
@@ -507,14 +505,14 @@ impl Noise {
         }
     }
 
-    fn get_sample(&mut self) -> f32 {
+    fn get_sample(&mut self, addr_space: &mut AddressSpace) -> f32 {
         if !self.enabled {
             return 0.0;
         }
 
         if self.samples_limited {
             if self.sample_count == 0 {
-                self.set_enabled(false);
+                self.set_enabled(addr_space, false);
                 return 0.0;
             }
             self.sample_count -= 1;
@@ -601,25 +599,25 @@ impl SoundState {
         }
     }
 
-    fn reset_regs(&mut self) {
-        io_set_reg(IOReg::NR10, 0x80);
-        io_set_reg(IOReg::NR11, 0xbf);
-        io_set_reg(IOReg::NR12, 0xf3);
-        io_set_reg(IOReg::NR14, 0xbf);
-        io_set_reg(IOReg::NR21, 0x3f);
-        io_set_reg(IOReg::NR22, 0x00);
-        io_set_reg(IOReg::NR24, 0xbf);
-        io_set_reg(IOReg::NR30, 0x7f);
-        io_set_reg(IOReg::NR31, 0xff);
-        io_set_reg(IOReg::NR32, 0x9f);
-        io_set_reg(IOReg::NR33, 0xbf);
-        io_set_reg(IOReg::NR41, 0xff);
-        io_set_reg(IOReg::NR42, 0x00);
-        io_set_reg(IOReg::NR43, 0x00);
-        io_set_reg(IOReg::NR44, 0xbf);
-        io_set_reg(IOReg::NR50, 0x77);
-        io_set_reg(IOReg::NR51, 0xf3);
-        io_set_reg(IOReg::NR52, 0xf1);
+    fn reset_regs(&mut self, addr_space: &mut AddressSpace) {
+        addr_space.io_set_reg(IOReg::NR10, 0x80);
+        addr_space.io_set_reg(IOReg::NR11, 0xbf);
+        addr_space.io_set_reg(IOReg::NR12, 0xf3);
+        addr_space.io_set_reg(IOReg::NR14, 0xbf);
+        addr_space.io_set_reg(IOReg::NR21, 0x3f);
+        addr_space.io_set_reg(IOReg::NR22, 0x00);
+        addr_space.io_set_reg(IOReg::NR24, 0xbf);
+        addr_space.io_set_reg(IOReg::NR30, 0x7f);
+        addr_space.io_set_reg(IOReg::NR31, 0xff);
+        addr_space.io_set_reg(IOReg::NR32, 0x9f);
+        addr_space.io_set_reg(IOReg::NR33, 0xbf);
+        addr_space.io_set_reg(IOReg::NR41, 0xff);
+        addr_space.io_set_reg(IOReg::NR42, 0x00);
+        addr_space.io_set_reg(IOReg::NR43, 0x00);
+        addr_space.io_set_reg(IOReg::NR44, 0xbf);
+        addr_space.io_set_reg(IOReg::NR50, 0x77);
+        addr_space.io_set_reg(IOReg::NR51, 0xf3);
+        addr_space.io_set_reg(IOReg::NR52, 0xf1);
 
         self.obuf_i = 0;
         self.obuf_i_cycles = 0.0;
@@ -641,7 +639,9 @@ impl SoundState {
     }
 
     /* @cycles must be in double-speed cycles */
-    pub fn add_cycles(&mut self, cycles: u32, realtime: bool) {
+    pub fn add_cycles(&mut self, addr_space: &mut AddressSpace,
+                      cycles: u32, realtime: bool)
+    {
         self.obuf_i_cycles += cycles as f32;
 
         while self.obuf_i_cycles >= (2097152.0 / 44100.0) {
@@ -657,10 +657,10 @@ impl SoundState {
             let mut out_guard = self.outbuf.lock().unwrap();
             let out = &mut *out_guard;
 
-            let ch1 = self.ch1.get_sample();
-            let ch2 = self.ch2.get_sample();
-            let ch3 = self.ch3.get_sample();
-            let ch4 = self.ch4.get_sample();
+            let ch1 = self.ch1.get_sample(addr_space);
+            let ch2 = self.ch2.get_sample(addr_space);
+            let ch3 = self.ch3.get_sample(addr_space);
+            let ch4 = self.ch4.get_sample(addr_space);
 
             let cm = self.shared.channel_mask;
             let ch1_f = (if cm & (1 << 0) != 0 { ch1 } else { 0.0 },
@@ -709,7 +709,8 @@ impl SoundState {
 pub fn sound_write(sys_state: &mut SystemState, addr: u16, mut val: u8)
 {
     let s = &mut sys_state.sound;
-    let nr52 = io_get_reg(IOReg::NR52);
+    let addr_space = &mut sys_state.addr_space;
+    let nr52 = addr_space.io_get_reg(IOReg::NR52);
 
     if nr52 & 0x80 == 0 && addr != 0x26 {
         return;
@@ -747,7 +748,7 @@ pub fn sound_write(sys_state: &mut SystemState, addr: u16, mut val: u8)
             s.ch1.samples_limited = val & (1 << 6) != 0;
 
             if val & 0x80 != 0 {
-                s.ch1.initialize();
+                s.ch1.initialize(addr_space);
             }
 
             val &= 0x40;
@@ -782,7 +783,7 @@ pub fn sound_write(sys_state: &mut SystemState, addr: u16, mut val: u8)
             s.ch2.samples_limited = val & (1 << 6) != 0;
 
             if val & 0x80 != 0 {
-                s.ch2.initialize();
+                s.ch2.initialize(addr_space);
             }
 
             val &= 0x40;
@@ -797,7 +798,7 @@ pub fn sound_write(sys_state: &mut SystemState, addr: u16, mut val: u8)
                 }
             } else if s.ch3.soft_stopped {
                 s.ch3.soft_stopped = false;
-                s.ch3.set_enabled(true);
+                s.ch3.set_enabled(addr_space, true);
             }
 
             val &= 0x80;
@@ -827,7 +828,7 @@ pub fn sound_write(sys_state: &mut SystemState, addr: u16, mut val: u8)
             s.ch3.out_samples_limited = val & (1 << 6) != 0;
 
             if val & 0x80 != 0 {
-                s.ch3.initialize();
+                s.ch3.initialize(addr_space);
             }
 
             val &= 0x40;
@@ -859,7 +860,7 @@ pub fn sound_write(sys_state: &mut SystemState, addr: u16, mut val: u8)
             s.ch4.samples_limited = val & (1 << 6) != 0;
 
             if val & 0x80 != 0 {
-                s.ch4.initialize();
+                s.ch4.initialize(addr_space);
             }
 
             val &= 0x40;
@@ -877,7 +878,7 @@ pub fn sound_write(sys_state: &mut SystemState, addr: u16, mut val: u8)
         0x26 => {
             val = (val & 0x80) | (nr52 & 0xf);
             if val & 0x80 == 0 {
-                SoundState::reset_regs(s);
+                s.reset_regs(addr_space);
             }
         },
 
@@ -886,5 +887,5 @@ pub fn sound_write(sys_state: &mut SystemState, addr: u16, mut val: u8)
         _ => unreachable!(),
     }
 
-    io_set_addr(addr, val);
+    addr_space.io_set_addr(addr, val);
 }

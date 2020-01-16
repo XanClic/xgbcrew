@@ -6,12 +6,61 @@ pub mod serial;
 pub mod sound;
 pub mod timer;
 
-use crate::address_space::AS_BASE;
+use crate::address_space::{AddressSpace, AS_BASE};
 use crate::system_state::{IOReg, SystemState};
 
 
-pub fn io_read(_: &mut SystemState, addr: u16) -> u8 {
-    io_get_addr(addr)
+pub trait IOSpace {
+    fn io_get_addr(&self, addr: u16) -> u8;
+    fn io_set_addr(&mut self, addr: u16, val: u8);
+
+    fn io_get_reg(&self, reg: IOReg) -> u8;
+    fn io_set_reg(&mut self, reg: IOReg, val: u8);
+}
+
+impl IOSpace for AddressSpace {
+    fn io_get_addr(&self, addr: u16) -> u8 {
+        unsafe {
+            *((AS_BASE + 0x10f00 + addr as usize) as *const u8)
+        }
+    }
+
+    fn io_set_addr(&mut self, addr: u16, val: u8) {
+        unsafe {
+            *((AS_BASE + 0x10f00 + addr as usize) as *mut u8) = val;
+        }
+    }
+
+    fn io_get_reg(&self, reg: IOReg) -> u8 {
+        IOSpace::io_get_addr(self, reg as u16)
+    }
+
+    fn io_set_reg(&mut self, reg: IOReg, val: u8) {
+        IOSpace::io_set_addr(self, reg as u16, val);
+    }
+}
+
+impl IOSpace for SystemState {
+    fn io_get_addr(&self, addr: u16) -> u8 {
+        self.addr_space.io_get_addr(addr)
+    }
+
+    fn io_set_addr(&mut self, addr: u16, val: u8) {
+        self.addr_space.io_set_addr(addr, val)
+    }
+
+    fn io_get_reg(&self, reg: IOReg) -> u8 {
+        self.addr_space.io_get_reg(reg)
+    }
+
+    fn io_set_reg(&mut self, reg: IOReg, val: u8) {
+        self.addr_space.io_set_reg(reg, val)
+    }
+}
+
+
+pub fn io_read(sys_state: &mut SystemState, addr: u16) -> u8 {
+    sys_state.io_get_addr(addr)
 }
 
 pub fn io_write(sys_state: &mut SystemState, addr: u16, val: u8) {
@@ -24,32 +73,12 @@ fn iow_not_implemented(_: &mut SystemState, addr: u16, val: u8) {
     panic!("I/O register not implemented: 0x{:02x} => 0xff{:02x}", val, addr);
 }
 
-fn iow_plain(_: &mut SystemState, addr: u16, val: u8) {
-    io_set_addr(addr, val);
+fn iow_plain(sys_state: &mut SystemState, addr: u16, val: u8) {
+    sys_state.io_set_addr(addr, val);
 }
 
-fn iow_clear(_: &mut SystemState, addr: u16, _: u8) {
-    io_set_addr(addr, 0u8);
-}
-
-pub fn io_get_addr(addr: u16) -> u8 {
-    unsafe {
-        *((AS_BASE + 0x10f00 + addr as usize) as *const u8)
-    }
-}
-
-pub fn io_get_reg(reg: IOReg) -> u8 {
-    io_get_addr(reg as u16)
-}
-
-pub fn io_set_addr(addr: u16, val: u8) {
-    unsafe {
-        *((AS_BASE + 0x10f00 + addr as usize) as *mut u8) = val;
-    }
-}
-
-pub fn io_set_reg(reg: IOReg, val: u8) {
-    io_set_addr(reg as u16, val);
+fn iow_clear(sys_state: &mut SystemState, addr: u16, _: u8) {
+    sys_state.io_set_addr(addr, 0u8);
 }
 
 fn vbk_write(sys_state: &mut SystemState, _: u16, val: u8) {
@@ -60,7 +89,7 @@ fn vbk_write(sys_state: &mut SystemState, _: u16, val: u8) {
     sys_state.addr_space.vram_bank = val as usize & 0x01;
     sys_state.addr_space.remap_vram();
 
-    io_set_reg(IOReg::VBK, val & 0x01);
+    sys_state.io_set_reg(IOReg::VBK, val & 0x01);
 }
 
 fn svbk_write(sys_state: &mut SystemState, _: u16, val: u8) {
@@ -72,7 +101,7 @@ fn svbk_write(sys_state: &mut SystemState, _: u16, val: u8) {
     sys_state.addr_space.wram_bank = if bank == 0 { 1 } else { bank };
     sys_state.addr_space.remap_wramn();
 
-    io_set_reg(IOReg::SVBK, bank as u8);
+    sys_state.io_set_reg(IOReg::SVBK, bank as u8);
 }
 
 fn key1_write(sys_state: &mut SystemState, _: u16, val: u8) {
@@ -80,8 +109,8 @@ fn key1_write(sys_state: &mut SystemState, _: u16, val: u8) {
         return;
     }
 
-    io_set_reg(IOReg::KEY1,
-               (io_get_reg(IOReg::KEY1) & 0x80) | (val & 0x01));
+    let key1 = sys_state.io_get_reg(IOReg::KEY1);
+    sys_state.io_set_reg(IOReg::KEY1, (key1 & 0x80) | (val & 0x01));
 }
 
 fn dma_write(sys_state: &mut SystemState, _: u16, val: u8) {
@@ -100,10 +129,10 @@ fn dma_write(sys_state: &mut SystemState, _: u16, val: u8) {
 }
 
 pub fn hdma_copy_16b(sys_state: &mut SystemState) -> bool {
-    let hdma = (io_get_reg(IOReg::HDMA1),
-                io_get_reg(IOReg::HDMA2),
-                io_get_reg(IOReg::HDMA3),
-                io_get_reg(IOReg::HDMA4));
+    let hdma = (sys_state.io_get_reg(IOReg::HDMA1),
+                sys_state.io_get_reg(IOReg::HDMA2),
+                sys_state.io_get_reg(IOReg::HDMA3),
+                sys_state.io_get_reg(IOReg::HDMA4));
 
     let mut src = ((hdma.0 as u16) << 8) | (hdma.1 as u16);
     let mut dst = ((hdma.2 as u16) << 8) | (hdma.3 as u16);
@@ -114,10 +143,10 @@ pub fn hdma_copy_16b(sys_state: &mut SystemState) -> bool {
     src += 16;
     dst += 16;
 
-    io_set_reg(IOReg::HDMA1, (src >> 8) as u8);
-    io_set_reg(IOReg::HDMA2, src as u8);
-    io_set_reg(IOReg::HDMA3, (dst >> 8) as u8);
-    io_set_reg(IOReg::HDMA4, dst as u8);
+    sys_state.io_set_reg(IOReg::HDMA1, (src >> 8) as u8);
+    sys_state.io_set_reg(IOReg::HDMA2, src as u8);
+    sys_state.io_set_reg(IOReg::HDMA3, (dst >> 8) as u8);
+    sys_state.io_set_reg(IOReg::HDMA4, dst as u8);
 
     unsafe {
         libc::memcpy(dst_ptr as *mut libc::c_void,
@@ -125,8 +154,8 @@ pub fn hdma_copy_16b(sys_state: &mut SystemState) -> bool {
                      16);
     }
 
-    let (rem, done) = io_get_reg(IOReg::HDMA5).overflowing_sub(1u8);
-    io_set_reg(IOReg::HDMA5, rem);
+    let (rem, done) = sys_state.io_get_reg(IOReg::HDMA5).overflowing_sub(1u8);
+    sys_state.io_set_reg(IOReg::HDMA5, rem);
 
     sys_state.add_cycles(if sys_state.double_speed { 16 } else { 8 });
 
@@ -157,7 +186,7 @@ fn hdma_write(sys_state: &mut SystemState, addr: u16, mut val: u8) {
         },
 
         0x55 => {
-            if io_get_reg(IOReg::HDMA5) & 0x80 == 0 {
+            if sys_state.io_get_reg(IOReg::HDMA5) & 0x80 == 0 {
                 /* HDMA active */
                 if val & 0x80 == 0 {
                     val = 0xff;
@@ -165,7 +194,7 @@ fn hdma_write(sys_state: &mut SystemState, addr: u16, mut val: u8) {
                     val = 0x7f;
                 }
             } else {
-                io_set_reg(IOReg::HDMA5, val & 0x7f);
+                sys_state.io_set_reg(IOReg::HDMA5, val & 0x7f);
 
                 if val & 0x80 == 0 {
                     while !hdma_copy_16b(sys_state) { }
@@ -178,15 +207,15 @@ fn hdma_write(sys_state: &mut SystemState, addr: u16, mut val: u8) {
         _ => unreachable!(),
     }
 
-    io_set_addr(addr, val);
+    sys_state.io_set_addr(addr, val);
 }
 
-pub fn init_dma(_: &mut SystemState) {
-    io_set_reg(IOReg::HDMA1, 0x00);
-    io_set_reg(IOReg::HDMA2, 0x00);
-    io_set_reg(IOReg::HDMA3, 0x80);
-    io_set_reg(IOReg::HDMA4, 0x00);
-    io_set_reg(IOReg::HDMA5, 0x80);
+pub fn init_dma(sys_state: &mut SystemState) {
+    sys_state.io_set_reg(IOReg::HDMA1, 0x00);
+    sys_state.io_set_reg(IOReg::HDMA2, 0x00);
+    sys_state.io_set_reg(IOReg::HDMA3, 0x80);
+    sys_state.io_set_reg(IOReg::HDMA4, 0x00);
+    sys_state.io_set_reg(IOReg::HDMA5, 0x80);
 }
 
 const IOW_HANDLERS: [fn(&mut SystemState, u16, u8); 256] = [

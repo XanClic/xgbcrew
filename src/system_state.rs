@@ -260,6 +260,7 @@ impl System {
             println!("Exported save state {} to {}", index + 1, fname);
         } else {
             savestate::import_root(self, &mut file, SAVE_STATE_VERSION);
+            self.sys_state.keypad.post_import(&mut self.sys_state.addr_space);
             println!("Imported save state {} from {}", index + 1, fname);
         }
     }
@@ -363,8 +364,10 @@ impl System {
 
     fn perform_ui_action(&mut self, action: UIAction) {
         match action {
-            UIAction::Key(key, down) =>
-                self.sys_state.keypad.key_event(key, down),
+            UIAction::Key(key, down) => {
+                let addr_space = &mut self.sys_state.addr_space;
+                self.sys_state.keypad.key_event(addr_space, key, down);
+            },
 
             UIAction::Skip(skip) =>
                 self.sys_state.realtime = !skip,
@@ -454,7 +457,7 @@ impl SystemState {
             };
 
         io::lcd::add_cycles(self, dcycles);
-        self.sound.add_cycles(dcycles, self.realtime);
+        self.sound.add_cycles(&mut self.addr_space, dcycles, self.realtime);
         io::timer::add_cycles(self, count);
     }
 }

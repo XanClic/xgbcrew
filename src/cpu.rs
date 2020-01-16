@@ -1,7 +1,7 @@
 mod insns;
 #[macro_use] mod macros;
 
-use crate::io::{io_get_reg, io_set_reg};
+use crate::io::IOSpace;
 use crate::system_state::{IOReg, SystemState};
 
 
@@ -88,7 +88,7 @@ impl CPU {
 
         let (ime, irqs) = {
             (sys_state.ints_enabled,
-             io_get_reg(IOReg::IF) & io_get_reg(IOReg::IE))
+             sys_state.io_get_reg(IOReg::IF) & sys_state.io_get_reg(IOReg::IE))
         };
 
         if ime {
@@ -99,8 +99,8 @@ impl CPU {
                 { insns::push(self, sys_state, self.pc); }
                 self.pc = 0x40 + irq * 8;
 
-                io_set_reg(IOReg::IF,
-                           io_get_reg(IOReg::IF) & !(1 << irq));
+                let iflag = sys_state.io_get_reg(IOReg::IF);
+                sys_state.io_set_reg(IOReg::IF, iflag & !(1 << irq));
             }
         }
 
