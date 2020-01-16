@@ -115,7 +115,7 @@ fn sgb_pal_set(sys_state: &mut SystemState) {
     if s.raw_packets[0][9] & 0x80 != 0 {
         let mut afi = (s.raw_packets[0][9] & 0x3f) as usize * (20 * 18);
         for x in (&mut sys_state.display.sgb_pal_bi) as &mut [u8] {
-            *x = (s.attr_files[afi / 4] >> (3 - (afi % 4))) & 0x3;
+            *x = ((s.attr_files[afi / 4] >> (2 * (3 - afi % 4))) & 0x3) * 4;
             afi += 1;
         }
     }
