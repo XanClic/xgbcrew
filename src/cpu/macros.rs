@@ -58,24 +58,24 @@ macro_rules! mem {
 
             if $a < 0xe000u16 {
                 /* Normal AS */
-                *(mem_addr as *mut u8)
+                *(mem_addr as *const u8)
             } else if $a >= 0xff80u16 && $a < 0xffffu16 {
                 /* High WRAM and stack */
-                *((mem_addr + 0x1000) as *mut u8)
+                *((mem_addr + 0x1000) as *const u8)
             } else if $a >= 0xfea0u16 {
                 if $a >= 0xff00u16 {
                     /* I/O */
                     io_read($ss, $a - 0xff00)
                 } else {
                     /* Illegal to access, mirror WRAM */
-                    *((mem_addr - 0x2000) as *mut u8)
+                    *((mem_addr - 0x2000) as *const u8)
                 }
             } else if $a >= 0xfe00u16 {
                 /* OAM */
-                *((mem_addr + 0x1000) as *mut u8)
+                *((mem_addr + 0x1000) as *const u8)
             } else {
                 /* Illegal to access, mirror WRAM */
-                *((mem_addr - 0x2000) as *mut u8)
+                *((mem_addr - 0x2000) as *const u8)
             }
         }
     };
