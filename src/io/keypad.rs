@@ -5,6 +5,13 @@ use crate::sgb::sgb_pulse;
 use crate::system_state::{IOReg, SystemState};
 
 
+#[derive(Serialize, Deserialize)]
+enum NextControllerProcedure {
+    WaitP14Low,
+    WaitP15Low,
+    WaitP1415High,
+}
+
 #[derive(SaveState)]
 pub struct KeypadState {
     /* Do not export keyboard state, because reloading does not change
@@ -22,6 +29,9 @@ pub struct KeypadState {
 
     #[savestate(skip_if("version < 1"))]
     controller_index: usize, /* Used by SGB */
+
+    #[savestate(skip_if("version < 5"))]
+    ncp: NextControllerProcedure,
 }
 
 pub enum KeypadKey {
@@ -45,6 +55,7 @@ impl KeypadState {
             sgb_cooldown: false,
             controller_count: 1,
             controller_index: 0,
+            ncp: NextControllerProcedure::WaitP14Low,
         }
     }
 
@@ -53,6 +64,8 @@ impl KeypadState {
     }
 
     fn update_p1(&self, addr_space: &mut AddressSpace) {
+        let old_p1 = addr_space.io_get_reg(IOReg::P1);
+
         let p14_15 =
             (if self.mask & 0x0f == 0x00 { 0x10 } else { 0x00 }) |
             (if self.mask & 0xf0 == 0x00 { 0x20 } else { 0x00 });
@@ -65,11 +78,18 @@ impl KeypadState {
                 (0, 0)
             };
 
-        if self.mask == 0 {
-            let ci = self.controller_index as u8;
-            addr_space.io_set_reg(IOReg::P1, p14_15 | (0xf - ci));
-        } else {
-            addr_space.io_set_reg(IOReg::P1, p14_15 | !(nibbles.0 | nibbles.1));
+        let new_p1 =
+            if self.mask == 0 {
+                p14_15 | (0xf - (self.controller_index as u8))
+            } else {
+                p14_15 | (!(nibbles.0 | nibbles.1) & 0xf)
+            };
+
+        addr_space.io_set_reg(IOReg::P1, new_p1);
+
+        if self.mask != 0 && old_p1 & !new_p1 & 0xf != 0 {
+            let iflag = addr_space.io_get_reg(IOReg::IF);
+            addr_space.io_set_reg(IOReg::IF, iflag | (IRQ::Input as u8));
         }
     }
 
@@ -95,11 +115,6 @@ impl KeypadState {
 
         if down {
             self.all_lines |= line;
-
-            if line & self.mask != 0 {
-                let iflag = addr_space.io_get_reg(IOReg::IF);
-                addr_space.io_set_reg(IOReg::IF, iflag | (IRQ::Input as u8));
-            }
         } else {
             self.all_lines &= !line;
         }
@@ -109,7 +124,8 @@ impl KeypadState {
 
     pub fn set_controller_count(&mut self, count: usize) {
         self.controller_count = count;
-        self.controller_index = count - 1;
+        self.controller_index = 0;
+        self.ncp = NextControllerProcedure::WaitP14Low;
     }
 }
 
@@ -125,9 +141,29 @@ pub fn p1_write(sys_state: &mut SystemState, _: u16, val: u8)
         (if np14 { 0x0f } else { 0x00 }) |
         (if np15 { 0xf0 } else { 0x00 });
 
-    if !np14 && !np15 && kp.controller_count > 0 {
-        kp.controller_index += 1;
-        kp.controller_index %= kp.controller_count;
+    if kp.controller_count > 1 {
+        match kp.ncp {
+            NextControllerProcedure::WaitP14Low => {
+                if np14 && !np15 {
+                    kp.ncp = NextControllerProcedure::WaitP15Low;
+                }
+            },
+
+            NextControllerProcedure::WaitP15Low => {
+                if np15 && !np14 {
+                    kp.ncp = NextControllerProcedure::WaitP1415High;
+                }
+            },
+
+            NextControllerProcedure::WaitP1415High => {
+                if !np14 && !np15 {
+                    kp.controller_index += 1;
+                    kp.controller_index %= kp.controller_count;
+
+                    kp.ncp = NextControllerProcedure::WaitP14Low;
+                }
+            },
+        }
     }
 
     kp.update_p1(&mut sys_state.addr_space);
