@@ -1,7 +1,7 @@
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::time::SystemTime;
 
-use crate::address_space::{AddressSpace, AS_BASE};
+use crate::address_space::AddressSpace;
 use crate::system_state::SystemParams;
 
 
@@ -298,10 +298,7 @@ impl Cartridge {
                         _ => unreachable!(),
                     };
 
-                    unsafe {
-                        libc::memset((AS_BASE + 0xa000) as *mut libc::c_void,
-                                     x as libc::c_int, 0x2000);
-                    }
+                    addr_space.set_virtual_extram(x as u8);
 
                     /* memset is done */
                     addr_space.extram_rw = false;
@@ -408,10 +405,7 @@ impl Cartridge {
                 addr_space.extram_rw = true;
                 addr_space.remap_extram();
 
-                unsafe {
-                    libc::memset((AS_BASE + 0xa000) as *mut libc::c_void,
-                                 val as libc::c_int, 0x2000);
-                }
+                addr_space.set_virtual_extram(val);
 
                 /* memset is done */
                 addr_space.extram_rw = false;

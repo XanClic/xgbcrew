@@ -374,6 +374,15 @@ impl AddressSpace {
         Cartridge::cart_write(self, addr, val);
     }
 
+    pub fn set_virtual_extram(&mut self, val: u8) {
+        assert!(self.extram_bank == Some(-1isize as usize));
+
+        unsafe {
+            libc::memset((AS_BASE + 0xa000) as *mut libc::c_void,
+                         val as libc::c_int, 0x2000);
+        }
+    }
+
     fn export_shm<T: std::io::Write>(fd: RawFd, size: usize, stream: &mut T) {
         let mapping = Self::mmap(0, fd, 0, size, libc::PROT_READ,
                                  libc::MAP_SHARED, false) as *const u8;
