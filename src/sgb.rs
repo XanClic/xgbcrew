@@ -261,7 +261,10 @@ pub fn sgb_pulse(sys_state: &mut SystemState, np14: bool, np15: bool) {
     }
 }
 
-fn sgb_buf_transfer(obuf: &mut [u8], ibuf: &[u8], mut i: usize) {
+fn sgb_buf_transfer(obuf: &mut [u8], ibuf: &[u8], start_i: usize) {
+    let mut i = start_i;
+    let end_i = start_i + 0x1000;
+
     for by in (0..144).step_by(8) {
         for x in (0..160).step_by(8) {
             for ry in 0..8 {
@@ -296,7 +299,7 @@ fn sgb_buf_transfer(obuf: &mut [u8], ibuf: &[u8], mut i: usize) {
                           ((p.7 & 2) >> 1);
                 i += 1;
 
-                if i >= 0x1000 {
+                if i >= end_i {
                     return;
                 }
             }
