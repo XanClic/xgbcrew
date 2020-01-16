@@ -14,6 +14,8 @@ pub struct UI {
     lcd_rect: sdl2::rect::Rect,
     sgb_border: bool,
     sgb_border_txt: sdl2::render::Texture<'static>,
+    border_rect: sdl2::rect::Rect,
+    full_screen_update_counter: u32,
 
     audio_dev: Option<sdl2::audio::AudioDevice<AudioOutput>>,
 
@@ -59,6 +61,8 @@ impl UI {
             lcd_rect: sdl2::rect::Rect::new(0, 0, 160, 144),
             sgb_border: false,
             sgb_border_txt: sgb_border_txt,
+            border_rect: sdl2::rect::Rect::new(0, 0, 160, 144),
+            full_screen_update_counter: 0,
 
             audio_dev: None,
 
@@ -98,13 +102,51 @@ impl UI {
                                        pixels.len() * 4)
         };
 
-        if self.sgb_border {
-            self.wnd_cvs.copy(&self.sgb_border_txt, None, None).unwrap();
+        self.full_screen_update_counter += 1;
+        if self.full_screen_update_counter == 30 {
+            self.update_bg();
+            self.full_screen_update_counter = 0;
         }
 
         self.lcd_txt.update(None, pixels8, 160 * 4).unwrap();
         self.wnd_cvs.copy(&self.lcd_txt, None, Some(self.lcd_rect)).unwrap();
         self.wnd_cvs.present();
+    }
+
+    fn update_bg(&mut self) {
+        self.wnd_cvs.clear();
+
+        if self.sgb_border {
+            self.wnd_cvs.copy(&self.sgb_border_txt, None,
+                              Some(self.border_rect)).unwrap();
+        }
+    }
+
+    fn update_rects(&mut self, w: u32, h: u32) {
+        let (raw_w, raw_h) =
+            if self.sgb_border {
+                (256, 224)
+            } else {
+                (160, 144)
+            };
+
+        let (aspect_w, aspect_h) =
+            if h * raw_w / raw_h < w {
+                (h * raw_w / raw_h, h)
+            } else {
+                (w, w * raw_h / raw_w)
+            };
+
+        let (lcd_w, lcd_h) = (aspect_w * 160 / raw_w, aspect_h * 144 / raw_h);
+        let (border_w, border_h) = (aspect_w, aspect_h);
+
+        let center = sdl2::rect::Point::new(w as i32 / 2, h as i32 / 2);
+
+        self.lcd_rect = sdl2::rect::Rect::from_center(center, lcd_w, lcd_h);
+        self.border_rect = sdl2::rect::Rect::from_center(center,
+                                                         border_w, border_h);
+
+        self.update_bg();
     }
 
     fn sdl_sc_to_ui_sc(sdl_sc: sdl2::keyboard::Scancode) -> Option<UIScancode> {
@@ -148,20 +190,6 @@ impl UI {
             };
 
         Some(ui_sc)
-    }
-
-    fn update_rects(&mut self, w: u32, h: u32) {
-        let (lw, lh) =
-            if self.sgb_border {
-                (w * 160 / 256, h * 144 / 224)
-            } else {
-                (w, h)
-            };
-
-        self.lcd_rect =
-            sdl2::rect::Rect::from_center(
-                sdl2::rect::Point::new(w as i32 / 2, h as i32 / 2),
-                lw, lh);
     }
 
     pub fn poll_event(&mut self) -> Option<UIEvent> {
@@ -209,6 +237,10 @@ impl UI {
                         match win_event {
                             sdl2::event::WindowEvent::Resized(w, h) => {
                                 self.update_rects(w as u32, h as u32);
+                            },
+
+                            sdl2::event::WindowEvent::Exposed => {
+                                self.update_bg();
                             },
 
                             _ => (),
