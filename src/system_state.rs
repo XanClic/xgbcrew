@@ -12,7 +12,7 @@ use crate::sgb::SGBState;
 use crate::ui::UI;
 
 
-const SAVE_STATE_VERSION: u64 = 5;
+const SAVE_STATE_VERSION: u64 = 6;
 
 #[allow(dead_code)]
 pub enum IOReg {
@@ -198,10 +198,6 @@ pub struct SystemState {
     #[savestate(skip)]
     pub realtime: bool,
     pub vblanked: bool,
-
-    /* Savestating the border is broken anyway */
-    #[savestate(skip)]
-    pub enable_sgb_border: bool,
 
     pub display: DisplayState,
     pub keypad: KeypadState,
@@ -400,8 +396,8 @@ impl System {
 
             self.ui.present_frame(&self.sys_state.display.lcd_pixels);
 
-            if self.sys_state.enable_sgb_border {
-                self.sys_state.enable_sgb_border = false;
+            if self.sys_state.sgb_state.load_border {
+                self.sys_state.sgb_state.load_border = false;
                 self.ui.enable_sgb_border();
 
                 self.ui.set_sgb_border(&self.sys_state.sgb_state.border_pixels);
@@ -431,7 +427,6 @@ impl SystemState {
             double_speed: false,
             realtime: true,
             vblanked: false,
-            enable_sgb_border: false,
 
             display: DisplayState::new(),
             keypad: KeypadState::new(),

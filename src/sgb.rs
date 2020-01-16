@@ -40,8 +40,15 @@ pub struct SGBState {
                 export_fn("savestate::export_u8_slice"))]
     attr_files: [u8; 0x1000],
 
-    #[savestate(skip)]
+    #[savestate(skip_if("version < 6"),
+                import_fn("savestate::import_u32_slice"),
+                export_fn("savestate::export_u32_slice"),
+                post_import("self.reload_border()"))]
     pub border_pixels: [u32; 256 * 224],
+
+    /* Will always be set after a savestate is loaded */
+    #[savestate(skip)]
+    pub load_border: bool,
 }
 
 impl SGBState {
@@ -60,7 +67,12 @@ impl SGBState {
             attr_files: [0u8; 0x1000],
 
             border_pixels: [0u32; 256 * 224],
+            load_border: false,
         }
+    }
+
+    fn reload_border(&mut self) {
+        self.load_border = true;
     }
 }
 
@@ -318,7 +330,7 @@ pub fn sgb_buf_done(sys_state: &mut SystemState) {
 
     if s.trn_dst == TransferDest::BorderMapPalette {
         sgb_construct_border_image(sys_state);
-        sys_state.enable_sgb_border = true;
+        sys_state.sgb_state.reload_border();
     }
 }
 
