@@ -121,8 +121,13 @@ impl AddressSpace {
             if bank == (-1isize as usize) {
                 Cartridge::cart_write(self, addr, val);
             } else if self.extram_rw {
-                self.full_extram[bank * 0x2000 + (addr as usize - 0xa000)] =
-                    val;
+                let full_ofs = bank * 0x2000 + (addr as usize - 0xa000);
+                self.full_extram[full_ofs] = val;
+
+                /* TODO: Batch writes, perhaps per frame? */
+                self.extram_file.seek(SeekFrom::Start(full_ofs as u64))
+                                .unwrap();
+                self.extram_file.write_all(&[val]).unwrap();
             }
         }
     }
