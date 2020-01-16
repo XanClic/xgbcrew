@@ -1,6 +1,7 @@
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate savestate_derive;
 
+#[cfg_attr(not(target_os = "linux"), path = "address_space_generic.rs")]
 mod address_space;
 mod cpu;
 mod io;

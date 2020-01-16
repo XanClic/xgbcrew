@@ -584,12 +584,15 @@ pub fn load_rom(addr_space: &mut AddressSpace) -> SystemParams {
             halted: true,
         }).unwrap().len();
 
-    let mut extram_len = extram_size * 8192;
-    if rtc {
-        extram_len += rtc_data_length;
-    }
+    #[cfg(target_os = "linux")]
+    {
+        let mut extram_len = extram_size * 8192;
+        if rtc {
+            extram_len += rtc_data_length;
+        }
 
-    addr_space.extram_file.set_len(extram_len as u64).unwrap();
+        addr_space.extram_file.set_len(extram_len as u64).unwrap();
+    }
 
     let rtc_data = if rtc {
             let pos = extram_size * 8192;

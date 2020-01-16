@@ -6,7 +6,9 @@ pub mod serial;
 pub mod sound;
 pub mod timer;
 
-use crate::address_space::{AddressSpace, AS_BASE};
+#[cfg(target_os = "linux")]
+use crate::address_space::AS_BASE;
+use crate::address_space::AddressSpace;
 use crate::system_state::{IOReg, SystemState};
 
 
@@ -19,15 +21,31 @@ pub trait IOSpace {
 }
 
 impl IOSpace for AddressSpace {
+    #[cfg(target_os = "linux")]
     fn io_get_addr(&self, addr: u16) -> u8 {
         unsafe {
             *((AS_BASE + 0x10f00 + addr as usize) as *const u8)
         }
     }
 
+    #[cfg(not(target_os = "linux"))]
+    fn io_get_addr(&self, addr: u16) -> u8 {
+        unsafe {
+            *self.raw_ptr(addr + 0xff00)
+        }
+    }
+
+    #[cfg(target_os = "linux")]
     fn io_set_addr(&mut self, addr: u16, val: u8) {
         unsafe {
             *((AS_BASE + 0x10f00 + addr as usize) as *mut u8) = val;
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn io_set_addr(&mut self, addr: u16, val: u8) {
+        unsafe {
+            *self.raw_mut_ptr(addr + 0xff00) = val;
         }
     }
 

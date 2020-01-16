@@ -2,7 +2,9 @@
 #![allow(unused_unsafe)]
 
 use crate::{mem, regs, regs8, regs16, regs16_split, flags, single_flag_mask};
-use crate::address_space::{AS_BASE, U8Split};
+#[cfg(target_os = "linux")]
+use crate::address_space::AS_BASE;
+use crate::address_space::U8Split;
 use crate::cpu::{CPU, IIOperation};
 use crate::io::{IOSpace, io_read, io_write};
 use crate::system_state::{IOReg, SystemState};
