@@ -141,7 +141,7 @@ fn sgb_pal_set(sys_state: &mut SystemState) {
             let rgb15 = s.pal_data[fpi + 0] as u16 |
                       ((s.pal_data[fpi + 1] as u16) << 8);
 
-            if shade == 0 && pal_bi == 3 {
+            if shade == 0 && pal_bi == 0 {
                 col0 = rgb15;
             }
 
