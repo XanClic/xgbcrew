@@ -1,4 +1,3 @@
-use crate::address_space::get_raw_read_addr;
 use crate::io::{hdma_copy_16b, io_get_reg, io_set_addr, io_set_reg, io_write};
 use crate::io::int::IRQ;
 use crate::sgb::sgb_buf_done;
@@ -434,7 +433,7 @@ fn draw_obj_line(sys_state: &mut SystemState, screen_line: u8,
     let sofs = screen_line as usize * 160;
     let eofs = sofs + 160;
     let pixels = &mut d.lcd_pixels[sofs..eofs];
-    let oam = get_raw_read_addr(0xfe00) as *const u8;
+    let oam = sys_state.addr_space.raw_ptr(0xfe00);
     let full_vram = &sys_state.addr_space.full_vram;
 
     let mut count = 0;

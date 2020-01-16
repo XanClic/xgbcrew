@@ -402,27 +402,33 @@ impl AddressSpace {
         stream.read_exact(&mut slice).unwrap();
         Self::munmap(mapping as usize, size);
     }
-}
 
+    /* Of course, this will only cover the current area */
+    fn get_raw_ptr(addr: u16) -> *mut u8 {
+        let mem_addr = AS_BASE + (addr as usize);
 
-/* Of course, this will only cover the current area */
-pub fn get_raw_read_addr(ptr: u16) -> usize {
-    let mem_addr = AS_BASE + (ptr as usize);
+        let mem_ptr =
+            if addr < 0xe000u16 {
+                mem_addr
+            } else if addr < 0xfe00u16 {
+                mem_addr - 0x2000
+            } else if addr < 0xfea0u16 {
+                mem_addr + 0x1000
+            } else if addr < 0xff00u16 {
+                mem_addr - 0x2000
+            } else {
+                mem_addr + 0x1000
+            };
 
-    if ptr < 0xe000u16 {
-        mem_addr
-    } else if ptr < 0xfe00u16 {
-        mem_addr - 0x2000
-    } else if ptr < 0xfea0u16 {
-        mem_addr + 0x1000
-    } else if ptr < 0xff00u16 {
-        mem_addr - 0x2000
-    } else if ptr < 0xff80u16 {
-        panic!("get_raw_read_addr() does not work for MMIO")
-    } else if ptr < 0xffffu16 {
-        mem_addr + 0x1000
-    } else {
-        panic!("get_raw_read_addr() does not work for MMIO")
+        mem_ptr as *mut u8
+    }
+
+    pub fn raw_ptr(&self, addr: u16) -> *const u8 {
+        Self::get_raw_ptr(addr) as *const u8
+    }
+
+    pub fn raw_mut_ptr(&mut self, addr: u16) -> *mut u8 {
+        Self::get_raw_ptr(addr)
     }
 }
 

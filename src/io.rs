@@ -6,7 +6,7 @@ pub mod serial;
 pub mod sound;
 pub mod timer;
 
-use crate::address_space::{AS_BASE, get_raw_read_addr};
+use crate::address_space::AS_BASE;
 use crate::system_state::{IOReg, SystemState};
 
 
@@ -84,15 +84,16 @@ fn key1_write(sys_state: &mut SystemState, _: u16, val: u8) {
                (io_get_reg(IOReg::KEY1) & 0x80) | (val & 0x01));
 }
 
-fn dma_write(_: &mut SystemState, _: u16, val: u8) {
+fn dma_write(sys_state: &mut SystemState, _: u16, val: u8) {
     if val == 0xff {
         return;
     }
 
-    let src = get_raw_read_addr((val as u16) << 8);
+    let src = sys_state.addr_space.raw_ptr((val as u16) << 8);
+    let dst = sys_state.addr_space.raw_mut_ptr(0xfe00);
 
     unsafe {
-        libc::memcpy((AS_BASE + 0x10e00) as *mut libc::c_void,
+        libc::memcpy(dst as *mut libc::c_void,
                      src as *const libc::c_void,
                      160);
     }
@@ -107,8 +108,8 @@ pub fn hdma_copy_16b(sys_state: &mut SystemState) -> bool {
     let mut src = ((hdma.0 as u16) << 8) | (hdma.1 as u16);
     let mut dst = ((hdma.2 as u16) << 8) | (hdma.3 as u16);
 
-    let raw_src = get_raw_read_addr(src);
-    let raw_dst = get_raw_read_addr(dst);
+    let src_ptr = sys_state.addr_space.raw_ptr(src);
+    let dst_ptr = sys_state.addr_space.raw_mut_ptr(dst);
 
     src += 16;
     dst += 16;
@@ -119,8 +120,8 @@ pub fn hdma_copy_16b(sys_state: &mut SystemState) -> bool {
     io_set_reg(IOReg::HDMA4, dst as u8);
 
     unsafe {
-        libc::memcpy(raw_dst as *mut libc::c_void,
-                     raw_src as *const libc::c_void,
+        libc::memcpy(dst_ptr as *mut libc::c_void,
+                     src_ptr as *const libc::c_void,
                      16);
     }
 
