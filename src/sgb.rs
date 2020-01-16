@@ -109,10 +109,10 @@ fn sgb_pal_set(sys_state: &mut SystemState) {
     let mut col0 = 0x7fff;
 
     if s.raw_packets[0][9] & 0x40 != 0 {
-        for x in (&mut sys_state.display.sgb_pal_bi) as &mut [u8] {
-            *x = 0;
-        }
-    } else if s.raw_packets[0][9] & 0x80 != 0 {
+        sys_state.display.sgb_mask(DisplaySGBMask::NoMask);
+    }
+
+    if s.raw_packets[0][9] & 0x80 != 0 {
         let mut afi = (s.raw_packets[0][9] & 0x3f) as usize * (20 * 18);
         for x in (&mut sys_state.display.sgb_pal_bi) as &mut [u8] {
             *x = (s.attr_files[afi / 4] >> (3 - (afi % 4))) & 0x3;
