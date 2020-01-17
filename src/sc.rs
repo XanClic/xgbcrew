@@ -280,7 +280,7 @@ impl SCThread {
     fn send_rumble(&self, index: u8, intensity: u16, period: u16, count: u16) {
         let cmd: [u8; 65] = [
             0,
-            0x8f, 0x67, index,
+            0x8f, 0x07, index,
             (intensity & 0xff) as u8,
             (intensity >> 8) as u8,
             (period & 0xff) as u8,
