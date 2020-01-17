@@ -12,7 +12,7 @@ use crate::sgb::SGBState;
 use crate::ui::UI;
 
 
-const SAVE_STATE_VERSION: u64 = 6;
+const SAVE_STATE_VERSION: u64 = 7;
 
 #[allow(dead_code)]
 pub enum IOReg {

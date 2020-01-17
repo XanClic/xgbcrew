@@ -49,6 +49,9 @@ pub struct SGBState {
     /* Will always be set after a savestate is loaded */
     #[savestate(skip)]
     pub load_border: bool,
+
+    #[savestate(skip_if("version < 7"))]
+    border_enabled: bool,
 }
 
 impl SGBState {
@@ -68,11 +71,14 @@ impl SGBState {
 
             border_pixels: [0u32; 256 * 224],
             load_border: false,
+            border_enabled: false,
         }
     }
 
     fn reload_border(&mut self) {
-        self.load_border = true;
+        if self.border_enabled {
+            self.load_border = true;
+        }
     }
 }
 
@@ -333,6 +339,7 @@ pub fn sgb_buf_done(sys_state: &mut SystemState) {
 
     if s.trn_dst == TransferDest::BorderMapPalette {
         sgb_construct_border_image(sys_state);
+        sys_state.sgb_state.border_enabled = true;
         sys_state.sgb_state.reload_border();
     }
 }
