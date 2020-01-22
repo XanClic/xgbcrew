@@ -7,9 +7,9 @@ use crate::system_state::{AudioOutputParams, IOReg, SystemState};
 
 /*
  * We do real-time synchronization through audio, so we need at least
- * one sync point per frame
+ * one sync point per frame (768 ~= 44100 / 60)
  */
-const FRAMES: usize = 44100 / 60;
+const FRAMES: usize = 768;
 
 
 #[derive(Serialize, Deserialize, Clone, Copy)]
@@ -230,7 +230,7 @@ impl ToneSweep {
 
         let in_freq = (self.time * self.freq).fract();
         self.time = (self.time + 1.0 / 44100.0).fract();
-        if in_freq >= self.duty { self.vol } else { -self.vol }
+        if in_freq >= self.duty { self.vol } else { 0.0 }
     }
 }
 
@@ -316,9 +316,9 @@ impl Wave {
         self.next_vol =
             match (self.nrx2 >> 5) & 0x03 {
                 0 => 0.0,
-                1 => 2.0,
-                2 => 1.0,
-                3 => 0.5,
+                1 => 1.0,
+                2 => 0.5,
+                3 => 0.25,
                 _ => unreachable!(),
             };
     }
@@ -545,14 +545,13 @@ impl Noise {
             self.output_counter -= self.shift_time;
         }
 
-        if self.lfsr & 1 != 0 { self.vol } else { -self.vol }
+        if self.lfsr & 1 != 0 { self.vol } else { 0.0 }
     }
 }
 
 
 #[derive(SaveState)]
 pub struct SoundState {
-
     #[savestate(skip)]
     outbuf: Arc<Mutex<Vec<f32>>>,
     #[savestate(skip)]
@@ -571,6 +570,9 @@ pub struct SoundState {
 
     ch3_l: bool,
     ch3_r: bool,
+
+    #[savestate(skip)]
+    neutral: (f32, f32),
 }
 
 impl SoundState {
@@ -596,6 +598,8 @@ impl SoundState {
 
             ch3_l: false,
             ch3_r: false,
+
+            neutral: (0.0, 0.0),
         }
     }
 
@@ -677,27 +681,18 @@ impl SoundState {
                 self.ch3_r = cm & (1 << 6) != 0;
             }
 
-            let mut cht_f = (
+            let cht_f = (
                     (ch1_f.0 + ch2_f.0 + ch3_f.0 + ch4_f.0) *
-                        self.shared.lvol * (1.0 / (15.0 * 7.0 * 8.0)),
+                        self.shared.lvol * 0.005,
                     (ch1_f.1 + ch2_f.1 + ch3_f.1 + ch4_f.1) *
-                        self.shared.rvol * (1.0 / (15.0 * 7.0 * 8.0))
+                        self.shared.rvol * 0.005
                 );
 
-            if cht_f.0 > 1.0 {
-                cht_f.0 = 1.0;
-            } else if cht_f.0 < -1.0 {
-                cht_f.0 = -1.0;
-            }
+            self.neutral.0 = self.neutral.0 * 0.995 + cht_f.0 * 0.005;
+            self.neutral.1 = self.neutral.1 * 0.995 + cht_f.1 * 0.005;
 
-            if cht_f.1 > 1.0 {
-                cht_f.1 = 1.0;
-            } else if cht_f.1 < -1.0 {
-                cht_f.1 = -1.0;
-            }
-
-            out[self.obuf_i + 0] = cht_f.0;
-            out[self.obuf_i + 1] = cht_f.1;
+            out[self.obuf_i + 0] = cht_f.0 - self.neutral.0;
+            out[self.obuf_i + 1] = cht_f.1 - self.neutral.1;
 
             self.obuf_i_cycles -= 2097152.0 / 44100.0;
             self.obuf_i += 2;
