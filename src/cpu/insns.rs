@@ -48,12 +48,8 @@ pub fn exec(cpu: &mut CPU, sys_state: &mut SystemState) -> u32 {
     //cpu_debug(cpu, sys_state, "");
     let basic_opcode = n8(cpu, sys_state) as usize;
 
-    if basic_opcode == 0xcb {
-        prefix0xcb(cpu, sys_state)
-    } else {
-        INSN_HANDLERS[basic_opcode](cpu, sys_state);
-        INSN_CYCLES[basic_opcode] as u32
-    }
+    INSN_HANDLERS[basic_opcode](cpu, sys_state);
+    INSN_CYCLES[basic_opcode] as u32
 }
 
 fn prefix0x10(cpu: &mut CPU, sys_state: &mut SystemState) {
@@ -103,13 +99,13 @@ macro_rules! acc_op_r8 {
     );
 }
 
-fn prefix0xcb(cpu: &mut CPU, sys_state: &mut SystemState) -> u32 {
+fn prefix0xcb(cpu: &mut CPU, sys_state: &mut SystemState) {
     let prefixed_opcode = n8(cpu, sys_state) as usize;
+    let r = prefixed_opcode & 0x07;
 
     if prefixed_opcode < 0x40 {
         INSN_CB_HANDLERS[prefixed_opcode](cpu, sys_state);
     } else {
-        let r = prefixed_opcode & 0x07;
         let mask = 1u8 << ((prefixed_opcode & 0x38) >> 3);
 
         match prefixed_opcode & 0xc0 {
@@ -137,7 +133,13 @@ fn prefix0xcb(cpu: &mut CPU, sys_state: &mut SystemState) -> u32 {
         };
     }
 
-    INSN_CB_CYCLES[prefixed_opcode] as u32
+    if r == 0x06 {
+        if prefixed_opcode & 0xc0 == 0x40 {
+            sys_state.add_cycles(1);
+        } else {
+            sys_state.add_cycles(2);
+        }
+    }
 }
 
 
@@ -573,10 +575,12 @@ macro_rules! add_hl_r16 {
 }
 
 macro_rules! cond_op {
-    ($name:ident, $cc:ident, $op:ident, $pc_skip:expr) => {
+    ($name:ident, $cc:ident, $op:ident, $pc_skip:literal,
+     $additional_cycles_when_taken:literal) => {
         fn $name(cpu: &mut CPU, sys_state: &mut SystemState) {
             if flags![cpu.$cc] {
                 $op(cpu, sys_state);
+                sys_state.add_cycles($additional_cycles_when_taken);
             } else {
                 let ofs = $pc_skip;
                 regs![regs![cpu.pc].wrapping_add(ofs) => cpu.pc];
@@ -584,10 +588,12 @@ macro_rules! cond_op {
         }
     };
 
-    ($name:ident, !$cc:ident, $op:ident, $pc_skip:expr) => {
+    ($name:ident, !$cc:ident, $op:ident, $pc_skip:literal,
+     $additional_cycles_when_taken:literal) => {
         fn $name(cpu: &mut CPU, sys_state: &mut SystemState) {
             if !flags![cpu.$cc] {
                 $op(cpu, sys_state);
+                sys_state.add_cycles($additional_cycles_when_taken);
             } else {
                 let ofs = $pc_skip;
                 regs![regs![cpu.pc].wrapping_add(ofs) => cpu.pc];
@@ -1042,19 +1048,19 @@ fn jr_n8(cpu: &mut CPU, sys_state: &mut SystemState) {
     regs![regs![cpu.pc].wrapping_add(ofs as u16) => cpu.pc];
 }
 
-cond_op!(jrnz_n8, !zf, jr_n8, 1);
-cond_op!(jrz_n8,   zf, jr_n8, 1);
-cond_op!(jrnc_n8, !cf, jr_n8, 1);
-cond_op!(jrc_n8,   cf, jr_n8, 1);
+cond_op!(jrnz_n8, !zf, jr_n8, 1, 1);
+cond_op!(jrz_n8,   zf, jr_n8, 1, 1);
+cond_op!(jrnc_n8, !cf, jr_n8, 1, 1);
+cond_op!(jrc_n8,   cf, jr_n8, 1, 1);
 
 fn jp_n16(cpu: &mut CPU, sys_state: &mut SystemState) {
     regs![n16(cpu, sys_state) => cpu.pc];
 }
 
-cond_op!(jpnz_n16, !zf, jp_n16, 2);
-cond_op!(jpz_n16,   zf, jp_n16, 2);
-cond_op!(jpnc_n16, !cf, jp_n16, 2);
-cond_op!(jpc_n16,   cf, jp_n16, 2);
+cond_op!(jpnz_n16, !zf, jp_n16, 2, 1);
+cond_op!(jpz_n16,   zf, jp_n16, 2, 1);
+cond_op!(jpnc_n16, !cf, jp_n16, 2, 1);
+cond_op!(jpc_n16,   cf, jp_n16, 2, 1);
 
 fn jp__hl(cpu: &mut CPU, _sys_state: &mut SystemState) {
     /* Caution: Actually, this is more of a "JP HL" than "JP (HL)" */
@@ -1084,10 +1090,10 @@ fn ret(cpu: &mut CPU, sys_state: &mut SystemState) {
     regs![pop(cpu, sys_state) => cpu.pc];
 }
 
-cond_op!(callnz_n16, !zf, call_n16, 2);
-cond_op!(callz_n16,   zf, call_n16, 2);
-cond_op!(callnc_n16, !cf, call_n16, 2);
-cond_op!(callc_n16,   cf, call_n16, 2);
+cond_op!(callnz_n16, !zf, call_n16, 2, 3);
+cond_op!(callz_n16,   zf, call_n16, 2, 3);
+cond_op!(callnc_n16, !cf, call_n16, 2, 3);
+cond_op!(callc_n16,   cf, call_n16, 2, 3);
 
 rstn!(0x00);
 rstn!(0x08);
@@ -1098,10 +1104,10 @@ rstn!(0x28);
 rstn!(0x30);
 rstn!(0x38);
 
-cond_op!(retnz, !zf, ret, 0);
-cond_op!(retz,   zf, ret, 0);
-cond_op!(retnc, !cf, ret, 0);
-cond_op!(retc,   cf, ret, 0);
+cond_op!(retnz, !zf, ret, 0, 3);
+cond_op!(retz,   zf, ret, 0, 3);
+cond_op!(retnc, !cf, ret, 0, 3);
+cond_op!(retc,   cf, ret, 0, 3);
 
 fn reti(cpu: &mut CPU, sys_state: &mut SystemState) {
     ret(cpu, sys_state);
@@ -1336,7 +1342,7 @@ const INSN_HANDLERS: [fn(&mut CPU, &mut SystemState); 256] = [
     retz,               /* 0xc8 */
     ret,
     jpz_n16,
-    not_implemented, /* actually prefix0xcb */
+    prefix0xcb,
     callz_n16,
     call_n16,
     adc_a_n8,
@@ -1459,45 +1465,24 @@ const INSN_CB_HANDLERS: [fn(&mut CPU, &mut SystemState); 64] = [
 ];
 
 const INSN_CYCLES: [u8; 256] = [
-    1, 3, 2, 2, 1, 1, 2, 1, 5, 2, 2, 2, 1, 1, 2, 1,
-    0, 3, 2, 2, 1, 1, 2, 1, 2, 2, 2, 2, 1, 1, 2, 1,
-    2, 3, 2, 2, 1, 1, 2, 1, 2, 2, 2, 2, 1, 1, 2, 1,
-    2, 3, 2, 2, 3, 3, 3, 1, 2, 2, 2, 2, 1, 1, 2, 1,
+ /* 0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f */
+    1, 3, 2, 2, 1, 1, 2, 1, 5, 2, 2, 2, 1, 1, 2, 1, /* 0 */
+    1, 3, 2, 2, 1, 1, 2, 1, 3, 2, 2, 2, 1, 1, 2, 1, /* 1 */
+    2, 3, 2, 2, 1, 1, 2, 1, 2, 2, 2, 2, 1, 1, 2, 1, /* 2 */
+    2, 3, 2, 2, 3, 3, 3, 1, 2, 2, 2, 2, 1, 1, 2, 1, /* 3 */
 
-    1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
-    1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
-    1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
-    2, 2, 2, 2, 2, 2, 1, 2, 1, 1, 1, 1, 1, 1, 2, 1,
+    1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1, /* 4 */
+    1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1, /* 5 */
+    1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1, /* 6 */
+    2, 2, 2, 2, 2, 2, 1, 2, 1, 1, 1, 1, 1, 1, 2, 1, /* 7 */
 
-    1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
-    1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
-    1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
-    1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
+    1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1, /* 8 */
+    1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1, /* 9 */
+    1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1, /* a */
+    1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1, /* b */
 
-    2, 3, 3, 3, 3, 4, 2, 8, 2, 2, 3, 1, 3, 3, 2, 8,
-    2, 3, 3, 0, 3, 4, 2, 8, 2, 2, 3, 0, 3, 0, 2, 8,
-    3, 3, 2, 0, 0, 4, 2, 8, 4, 1, 3, 0, 0, 0, 2, 8,
-    3, 3, 2, 1, 0, 4, 2, 8, 3, 2, 3, 1, 0, 0, 2, 8,
-];
-
-const INSN_CB_CYCLES: [u8; 256] = [
-    1, 1, 1, 1, 1, 1, 3, 1, 1, 1, 1, 1, 1, 1, 3, 1,
-    1, 1, 1, 1, 1, 1, 3, 1, 1, 1, 1, 1, 1, 1, 3, 1,
-    1, 1, 1, 1, 1, 1, 3, 1, 1, 1, 1, 1, 1, 1, 3, 1,
-    1, 1, 1, 1, 1, 1, 3, 1, 1, 1, 1, 1, 1, 1, 3, 1,
-
-    1, 1, 1, 1, 1, 1, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-
-    1, 1, 1, 1, 1, 1, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-
-    1, 1, 1, 1, 1, 1, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    2, 3, 3, 4, 3, 4, 2, 4, 2, 4, 3, 2, 3, 6, 2, 4, /* c */
+    2, 3, 3, 0, 3, 4, 2, 4, 2, 4, 3, 0, 3, 0, 2, 4, /* d */
+    3, 3, 2, 0, 0, 4, 2, 4, 4, 1, 4, 0, 0, 0, 2, 4, /* e */
+    3, 3, 2, 1, 0, 4, 2, 4, 3, 2, 4, 1, 0, 0, 2, 4, /* f */
 ];
