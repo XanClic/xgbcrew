@@ -1,3 +1,4 @@
+mod disasm;
 mod insns;
 #[macro_use] mod macros;
 

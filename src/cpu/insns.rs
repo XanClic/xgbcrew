@@ -6,6 +6,7 @@ use crate::{mem, regs, regs8, regs16, regs16_split, flags, single_flag_mask};
 use crate::address_space::AS_BASE;
 use crate::address_space::U8Split;
 use crate::cpu::{CPU, IIOperation};
+use crate::cpu::disasm::disassemble;
 use crate::io::{IOSpace, io_read, io_write};
 use crate::system_state::{IOReg, SystemState};
 
@@ -22,12 +23,16 @@ pub fn cpu_panic(cpu: &CPU, msg: &str) {
 }
 
 #[allow(dead_code)]
-pub fn cpu_debug(cpu: &CPU, sys_state: &SystemState, msg: &str) {
-    println!("{}PC={:04x} AF={:04x} BC={:04x} DE={:04x} HL={:04x} SP={:04x} [{}]",
+pub fn cpu_debug(cpu: &CPU, sys_state: &mut SystemState, msg: &str) {
+    let disasm = { disassemble(sys_state, cpu) };
+
+    println!("{}PC={:04x} AF={:04x} BC={:04x} DE={:04x} HL={:04x} SP={:04x} \
+              [{}] -- {}",
              msg,
              regs![cpu.pc], regs![cpu.af], regs![cpu.bc], regs![cpu.de],
              regs![cpu.hl], regs![cpu.sp],
-             sys_state.addr_space.rom_bank);
+             sys_state.addr_space.rom_bank,
+             disasm);
 }
 
 
