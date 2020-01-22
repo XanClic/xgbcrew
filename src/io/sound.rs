@@ -578,6 +578,14 @@ pub struct SoundState {
     ch3_r: bool,
 
     #[savestate(skip)]
+    postprocess: bool,
+
+    #[savestate(skip)]
+    velocity: (f32, f32),
+    #[savestate(skip)]
+    position: (f32, f32),
+
+    #[savestate(skip)]
     neutral: (f32, f32),
 }
 
@@ -604,6 +612,11 @@ impl SoundState {
 
             ch3_l: false,
             ch3_r: false,
+
+            postprocess: false,
+
+            velocity: (0.0, 0.0),
+            position: (0.0, 0.0),
 
             neutral: (0.0, 0.0),
         }
@@ -687,12 +700,27 @@ impl SoundState {
                 self.ch3_r = cm & (1 << 6) != 0;
             }
 
-            let cht_f = (
+            let mut cht_f = (
                     (ch1_f.0 + ch2_f.0 + ch3_f.0 + ch4_f.0) *
                         self.shared.lvol * 0.005,
                     (ch1_f.1 + ch2_f.1 + ch3_f.1 + ch4_f.1) *
                         self.shared.rvol * 0.005
                 );
+
+            if self.postprocess {
+                let force = (cht_f.0 * 0.3 - self.position.0 * 0.4 -
+                                 self.velocity.0 * 0.1,
+                             cht_f.1 * 0.3 - self.position.1 * 0.4 -
+                                 self.velocity.1 * 0.1);
+
+                self.velocity.0 += force.0;
+                self.velocity.1 += force.1;
+
+                self.position.0 += self.velocity.0;
+                self.position.1 += self.velocity.1;
+
+                cht_f = self.position;
+            }
 
             self.neutral.0 = self.neutral.0 * 0.995 + cht_f.0 * 0.005;
             self.neutral.1 = self.neutral.1 * 0.995 + cht_f.1 * 0.005;
@@ -703,6 +731,10 @@ impl SoundState {
             self.obuf_i_cycles -= 2097152.0 / 44100.0;
             self.obuf_i += 2;
         }
+    }
+
+    pub fn toggle_postprocessing(&mut self) {
+        self.postprocess = !self.postprocess;
     }
 }
 

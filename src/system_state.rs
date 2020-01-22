@@ -140,6 +140,7 @@ enum UIAction {
     Key(KeypadKey, bool),
 
     Skip(bool),
+    ToggleAudioPostprocessing,
 
     LoadState(usize),
     SaveState(usize),
@@ -279,18 +280,16 @@ impl System {
 
             UIEvent::Key { key, down: true } => {
                 match key {
-                    UIScancode::F1  => self.fkey(0),
-                    UIScancode::F2  => self.fkey(1),
-                    UIScancode::F3  => self.fkey(2),
-                    UIScancode::F4  => self.fkey(3),
-                    UIScancode::F5  => self.fkey(4),
-                    UIScancode::F6  => self.fkey(5),
-                    UIScancode::F7  => self.fkey(6),
-                    UIScancode::F8  => self.fkey(7),
-                    UIScancode::F9  => self.fkey(8),
-                    UIScancode::F10 => self.fkey(9),
-                    UIScancode::F11 => self.fkey(10),
-                    UIScancode::F12 => self.fkey(11),
+                    UIScancode::F1 => self.fkey(0),
+                    UIScancode::F2 => self.fkey(1),
+                    UIScancode::F3 => self.fkey(2),
+                    UIScancode::F4 => self.fkey(3),
+                    UIScancode::F5 => self.fkey(4),
+                    UIScancode::F6 => self.fkey(5),
+                    UIScancode::F7 => self.fkey(6),
+                    UIScancode::F8 => self.fkey(7),
+
+                    UIScancode::F9 => Some(UIAction::ToggleAudioPostprocessing),
 
                     UIScancode::CLoad(x) => Some(UIAction::LoadState(x)),
                     UIScancode::CSave(x) => Some(UIAction::SaveState(x)),
@@ -367,6 +366,9 @@ impl System {
 
             UIAction::Skip(skip) =>
                 self.sys_state.realtime = !skip,
+
+            UIAction::ToggleAudioPostprocessing =>
+                self.sys_state.sound.toggle_postprocessing(),
 
             UIAction::LoadState(index) =>
                 self.do_save_state(index, false),
