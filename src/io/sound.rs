@@ -362,9 +362,10 @@ impl Wave {
             }
         }
 
-        let sample = (self.samples[self.sample_i / 2]
-                      >> (4 - (self.sample_i % 2) * 4))
-                     & 0x0f;
+        let mut in_sample_t = (self.samples[self.sample_i / 2] as usize
+                               >> (4 - (self.sample_i % 2) * 4))
+                              & 0x0f;
+        let mut in_sample_count = 1;
 
         self.sample_counter += 1.0 / 44100.0;
         while self.sample_counter >= self.sample_time {
@@ -372,9 +373,14 @@ impl Wave {
             self.sample_counter -= self.sample_time;
 
             self.pull_regs(addr_space);
+
+            in_sample_t += (self.samples[self.sample_i / 2] as usize
+                            >> (4 - (self.sample_i % 2) * 4))
+                           & 0x0f;
+            in_sample_count += 1;
         }
 
-        sample as f32 * self.vol
+        (in_sample_t / in_sample_count) as f32 * self.vol
     }
 }
 
