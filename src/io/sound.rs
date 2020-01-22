@@ -150,7 +150,7 @@ impl ToneSweep {
     }
 
     fn update_sweep(&mut self) {
-        let time_x = self.nrx0 >> 5;
+        let time_x = (self.nrx0 & 0x70) >> 4;
         self.sweep_n = (self.nrx0 & 0x07) as usize;
 
         if self.sweep_n == 0 || time_x == 0 {
