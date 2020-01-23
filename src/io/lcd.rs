@@ -798,86 +798,94 @@ pub fn lcd_write(sys_state: &mut SystemState, addr: u16, mut val: u8) {
         },
 
         0x68 => {
-            let d = &mut sys_state.display;
+            if sys_state.cgb {
+                let d = &mut sys_state.display;
 
-            val &= 0xbf;
+                val &= 0xbf;
 
-            let i = (val as usize & 0x3e) >> 1;
-            addr_space.io_set_reg(IOReg::BCPD,
-                                  if val & 0x01 == 0 {
-                                      d.bg_palette15[i] as u8
-                                  } else {
-                                      (d.bg_palette15[i] >> 8) as u8
-                                  });
+                let i = (val as usize & 0x3e) >> 1;
+                addr_space.io_set_reg(IOReg::BCPD,
+                                      if val & 0x01 == 0 {
+                                          d.bg_palette15[i] as u8
+                                      } else {
+                                          (d.bg_palette15[i] >> 8) as u8
+                                      });
 
-            d.bcps = val;
+                d.bcps = val;
+            }
         },
 
         0x69 => {
-            let bcps = {
-                let d = &mut sys_state.display;
+            if sys_state.cgb {
+                let bcps = {
+                    let d = &mut sys_state.display;
 
-                let i = (d.bcps as usize & 0x3e) >> 1;
-                if d.bcps & 0x01 == 0 {
-                    d.bg_palette15[i] =
-                        (d.bg_palette15[i] & 0xff00) |
-                        (val as u16);
-                } else {
-                    val &= 0x7f;
-                    d.bg_palette15[i] =
-                        (d.bg_palette15[i] & 0x00ff) |
-                        ((val as u16) << 8);
+                    let i = (d.bcps as usize & 0x3e) >> 1;
+                    if d.bcps & 0x01 == 0 {
+                        d.bg_palette15[i] =
+                            (d.bg_palette15[i] & 0xff00) |
+                            (val as u16);
+                    } else {
+                        val &= 0x7f;
+                        d.bg_palette15[i] =
+                            (d.bg_palette15[i] & 0x00ff) |
+                            ((val as u16) << 8);
+                    }
+
+                    d.bg_palette[i] = rgb15_to_rgb24(d.bg_palette15[i]);
+
+                    d.bcps
+                };
+
+                if bcps & 0x80 != 0 {
+                    lcd_write(sys_state, IOReg::BCPS as u16, (bcps + 1) & 0xbf);
                 }
-
-                d.bg_palette[i] = rgb15_to_rgb24(d.bg_palette15[i]);
-
-                d.bcps
-            };
-
-            if bcps & 0x80 != 0 {
-                lcd_write(sys_state, IOReg::BCPS as u16, (bcps + 1) & 0xbf);
             }
         },
 
         0x6a => {
-            let d = &mut sys_state.display;
+            if sys_state.cgb {
+                let d = &mut sys_state.display;
 
-            val &= 0xbf;
+                val &= 0xbf;
 
-            let i = (val as usize & 0x3e) >> 1;
-            addr_space.io_set_reg(IOReg::OCPD,
-                                  if val & 0x01 == 0 {
-                                      d.obj_palette15[i] as u8
-                                  } else {
-                                      (d.obj_palette15[i] >> 8) as u8
-                                  });
+                let i = (val as usize & 0x3e) >> 1;
+                addr_space.io_set_reg(IOReg::OCPD,
+                                      if val & 0x01 == 0 {
+                                          d.obj_palette15[i] as u8
+                                      } else {
+                                          (d.obj_palette15[i] >> 8) as u8
+                                      });
 
-            d.ocps = val;
+                d.ocps = val;
+            }
         },
 
         0x6b => {
-            let ocps = {
-                let d = &mut sys_state.display;
+            if sys_state.cgb {
+                let ocps = {
+                    let d = &mut sys_state.display;
 
-                let i = (d.ocps as usize & 0x3e) >> 1;
-                if d.ocps & 0x01 == 0 {
-                    d.obj_palette15[i] =
-                        (d.obj_palette15[i] & 0xff00) |
-                        (val as u16);
-                } else {
-                    val &= 0x7f;
-                    d.obj_palette15[i] =
-                        (d.obj_palette15[i] & 0x00ff) |
-                        ((val as u16) << 8);
+                    let i = (d.ocps as usize & 0x3e) >> 1;
+                    if d.ocps & 0x01 == 0 {
+                        d.obj_palette15[i] =
+                            (d.obj_palette15[i] & 0xff00) |
+                            (val as u16);
+                    } else {
+                        val &= 0x7f;
+                        d.obj_palette15[i] =
+                            (d.obj_palette15[i] & 0x00ff) |
+                            ((val as u16) << 8);
+                    }
+
+                    d.obj_palette[i] = rgb15_to_rgb24(d.obj_palette15[i]);
+
+                    d.ocps
+                };
+
+                if ocps & 0x80 != 0 {
+                    lcd_write(sys_state, IOReg::OCPS as u16, (ocps + 1) & 0xbf);
                 }
-
-                d.obj_palette[i] = rgb15_to_rgb24(d.obj_palette15[i]);
-
-                d.ocps
-            };
-
-            if ocps & 0x80 != 0 {
-                lcd_write(sys_state, IOReg::OCPS as u16, (ocps + 1) & 0xbf);
             }
         },
 
