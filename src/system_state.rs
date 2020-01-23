@@ -163,7 +163,8 @@ pub struct AudioOutputParams {
     pub channels: usize,
 
     pub buf: Arc<Mutex<Vec<f32>>>,
-    pub buf_done: Sender<()>,
+    pub buf_step: usize,
+    pub buf_done: Sender<usize>,
 }
 
 struct KeyboardState {

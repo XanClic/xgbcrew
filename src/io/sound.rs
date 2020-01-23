@@ -9,7 +9,26 @@ use crate::system_state::{AudioOutputParams, IOReg, SystemState};
  * We do real-time synchronization through audio, so we need at least
  * one sync point per frame (768 ~= 44100 / 60)
  */
+
+/* Number of frames to feed the audio driver per sync point */
 const FRAMES: usize = 768;
+
+/* Number of samples to feed the audio driver per sync point */
+const SAMPLES: usize = FRAMES * 2;
+
+/*
+ * Number of buffers to use
+ * 1: Generate a single buffer, wait for the audio driver to use it,
+ *    then continue.
+ * 2: Generate two buffers, wait for the audio driver to use the first
+ *    one, then reclaim its space.  That means double the delay, but
+ *    there is always one buffer in reserve.
+ * (Higher numbers accordingly.)
+ */
+const BUFCOUNT: usize = 2;
+
+/* Total sample count of all sound buffers */
+const BUFSZ: usize = SAMPLES * BUFCOUNT;
 
 
 #[derive(SaveState)]
@@ -587,12 +606,16 @@ pub struct SoundState {
     #[savestate(skip)]
     outbuf: Arc<Mutex<Vec<f32>>>,
     #[savestate(skip)]
-    outbuf_done: Receiver<()>,
+    intbuf: Vec<f32>,
     #[savestate(skip)]
-    outbuf_done_handout: Option<Sender<()>>,
+    outbuf_done: Receiver<usize>,
+    #[savestate(skip)]
+    outbuf_done_handout: Option<Sender<usize>>,
 
+    ibuf_i: usize,
+    #[savestate(skip)]
     obuf_i: usize,
-    obuf_i_cycles: f32,
+    ibuf_i_cycles: f32,
     shared: SharedState,
 
     ch1: ToneSweep,
@@ -617,17 +640,22 @@ pub struct SoundState {
 impl SoundState {
     pub fn new() -> Self {
         let mut outbuf = Vec::<f32>::new();
-        outbuf.resize(FRAMES * 2, 0.0);
+        outbuf.resize(BUFSZ, 0.0);
+
+        let mut intbuf = Vec::<f32>::new();
+        intbuf.resize(BUFSZ, 0.0);
 
         let (snd, rcv) = channel();
 
         Self {
             outbuf: Arc::new(Mutex::new(outbuf)),
+            intbuf: intbuf,
             outbuf_done: rcv,
             outbuf_done_handout: Some(snd),
 
+            ibuf_i: 0,
             obuf_i: 0,
-            obuf_i_cycles: 0.0,
+            ibuf_i_cycles: 0.0,
             shared: SharedState::new(),
 
             ch1: ToneSweep::new(0),
@@ -666,8 +694,8 @@ impl SoundState {
         addr_space.io_set_reg(IOReg::NR51, 0xf3);
         addr_space.io_set_reg(IOReg::NR52, 0xf1);
 
-        self.obuf_i = 0;
-        self.obuf_i_cycles = 0.0;
+        self.ibuf_i = 0;
+        self.ibuf_i_cycles = 0.0;
         self.shared = SharedState::new();
         self.ch1 = ToneSweep::new(0);
         self.ch2 = ToneSweep::new(1);
@@ -681,6 +709,7 @@ impl SoundState {
             channels: 2,
 
             buf: self.outbuf.clone(),
+            buf_step: SAMPLES,
             buf_done: self.outbuf_done_handout.take().unwrap(),
         }
     }
@@ -689,21 +718,9 @@ impl SoundState {
     pub fn add_cycles(&mut self, addr_space: &mut AddressSpace,
                       cycles: u32, realtime: bool)
     {
-        self.obuf_i_cycles += cycles as f32;
+        self.ibuf_i_cycles += cycles as f32;
 
-        while self.obuf_i_cycles >= (2097152.0 / 44100.0) {
-            if self.obuf_i == FRAMES * 2 {
-                if realtime {
-                    self.outbuf_done.recv().unwrap();
-                } else {
-                    self.outbuf_done.try_recv().unwrap_or(());
-                }
-                self.obuf_i = 0;
-            }
-
-            let mut out_guard = self.outbuf.lock().unwrap();
-            let out = &mut *out_guard;
-
+        while self.ibuf_i_cycles >= (2097152.0 / 44100.0) {
             let ch1 = self.ch1.get_sample(addr_space);
             let ch2 = self.ch2.get_sample(addr_space);
             let ch3 = self.ch3.get_sample(addr_space);
@@ -746,11 +763,35 @@ impl SoundState {
             self.position.0 += self.velocity.0;
             self.position.1 += self.velocity.1;
 
-            out[self.obuf_i + 0] = self.position.0;
-            out[self.obuf_i + 1] = self.position.1;
+            self.intbuf[self.ibuf_i + 0] = self.position.0;
+            self.intbuf[self.ibuf_i + 1] = self.position.1;
 
-            self.obuf_i_cycles -= 2097152.0 / 44100.0;
-            self.obuf_i += 2;
+            self.ibuf_i_cycles -= 2097152.0 / 44100.0;
+            self.ibuf_i = (self.ibuf_i + 2) % BUFSZ;
+
+            if self.ibuf_i % SAMPLES == 0 {
+                let start = (self.ibuf_i + BUFSZ - SAMPLES) % BUFSZ;
+                let end = if self.ibuf_i == 0 { BUFSZ } else { self.ibuf_i };
+
+                {
+                    let mut out_guard = self.outbuf.lock().unwrap();
+                    let out = &mut *out_guard;
+
+                    for i in start..end {
+                        out[i] = self.intbuf[i];
+                    }
+                }
+
+                if self.ibuf_i == self.obuf_i {
+                    self.obuf_i =
+                        if realtime {
+                            self.outbuf_done.recv().unwrap()
+                        } else {
+                            self.outbuf_done.try_recv().unwrap_or(0)
+                        };
+                }
+            }
+
         }
     }
 

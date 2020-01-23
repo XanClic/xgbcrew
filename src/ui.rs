@@ -71,20 +71,16 @@ impl UI {
     }
 
     pub fn setup_audio(&mut self, params: AudioOutputParams) {
-        let samples = {
-            let buf_guard = params.buf.lock().unwrap();
-            buf_guard.len()
-        };
-
         let sound_spec = sdl2::audio::AudioSpecDesired {
             freq: Some(params.freq as i32),
             channels: Some(params.channels as u8),
-            samples: Some((samples / params.channels) as u16),
+            samples: Some((params.buf_step / params.channels) as u16),
         };
 
         let adev_obj_gen = |_| {
             AudioOutput {
                 buf: params.buf,
+                buf_i: 0,
                 buf_done: params.buf_done,
             }
         };
@@ -296,7 +292,8 @@ impl UI {
 
 struct AudioOutput {
     buf: Arc<Mutex<Vec<f32>>>,
-    buf_done: Sender<()>,
+    buf_i: usize,
+    buf_done: Sender<usize>,
 }
 
 impl sdl2::audio::AudioCallback for AudioOutput {
@@ -307,9 +304,10 @@ impl sdl2::audio::AudioCallback for AudioOutput {
         let inp = &*inp_guard;
 
         for i in 0..out.len() {
-            out[i] = inp[i];
+            out[i] = inp[self.buf_i + i];
         }
+        self.buf_i = (self.buf_i + out.len()) % inp.len();
 
-        self.buf_done.send(()).unwrap();
+        self.buf_done.send(self.buf_i).unwrap();
     }
 }
