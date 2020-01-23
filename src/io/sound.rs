@@ -12,7 +12,7 @@ use crate::system_state::{AudioOutputParams, IOReg, SystemState};
 const FRAMES: usize = 768;
 
 
-#[derive(Serialize, Deserialize, Clone, Copy)]
+#[derive(SaveState)]
 struct SharedState {
     lvol: f32,
     rvol: f32,
@@ -29,7 +29,7 @@ impl SharedState {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy)]
+#[derive(SaveState)]
 struct ToneSweep {
     channel: usize,
     time: f32,
@@ -111,11 +111,15 @@ impl ToneSweep {
     }
 
     fn update_freq(&mut self, update_freq_x: bool) {
+        let in_ofreq = (self.time * self.freq).fract();
+
         if update_freq_x {
             self.freq_x = (self.nrx3 as u32) |
                           ((self.nrx4 as u32 & 0x07) << 8);
         }
         self.freq = 131072.0 / ((2048 - self.freq_x) as f32);
+
+        self.time = in_ofreq / self.freq;
     }
 
     fn update_len(&mut self) {
@@ -219,23 +223,21 @@ impl ToneSweep {
                 } else {
                     self.freq_x -= self.freq_x >> self.sweep_n;
                 }
-
-                let in_ofreq = (self.time * self.freq).fract();
                 self.update_freq(false);
-                self.time = in_ofreq / self.freq;
-
                 self.sweep_counter -= self.sweep_time;
             }
         }
 
+        self.time += 1.0 / 44100.0;
         let in_freq = (self.time * self.freq).fract();
-        self.time = (self.time + 1.0 / 44100.0).fract();
+        self.time = in_freq / self.freq;
+
         if in_freq >= self.duty { self.vol } else { 0.0 }
     }
 }
 
 
-#[derive(Serialize, Deserialize, Clone, Copy)]
+#[derive(SaveState)]
 struct Wave {
     channel: usize,
     enabled: bool,
@@ -315,10 +317,10 @@ impl Wave {
     fn update_vol(&mut self) {
         self.next_vol =
             match (self.nrx2 >> 5) & 0x03 {
-                0 => 0.0,
-                1 => 1.0,
-                2 => 0.5,
-                3 => 0.25,
+                0 =>  0.0,
+                1 => -1.0,
+                2 => -0.5,
+                3 => -0.25,
                 _ => unreachable!(),
             };
     }
@@ -365,7 +367,7 @@ impl Wave {
         let mut in_sample_t = (self.samples[self.sample_i / 2] as usize
                                >> (4 - (self.sample_i % 2) * 4))
                               & 0x0f;
-        let mut in_sample_count = 1;
+        let mut in_sample_count = 1.0;
 
         self.sample_counter += 1.0 / 44100.0;
         while self.sample_counter >= self.sample_time {
@@ -374,18 +376,20 @@ impl Wave {
 
             self.pull_regs(addr_space);
 
-            in_sample_t += (self.samples[self.sample_i / 2] as usize
-                            >> (4 - (self.sample_i % 2) * 4))
-                           & 0x0f;
-            in_sample_count += 1;
+            if self.sample_counter >= self.sample_time {
+                in_sample_t += (self.samples[self.sample_i / 2] as usize
+                                >> (4 - (self.sample_i % 2) * 4))
+                               & 0x0f;
+                in_sample_count += 1.0;
+            }
         }
 
-        (in_sample_t / in_sample_count) as f32 * self.vol
+        (in_sample_t as f32 / in_sample_count) * self.vol
     }
 }
 
 
-#[derive(Serialize, Deserialize, Clone, Copy)]
+#[derive(SaveState)]
 struct Noise {
     channel: usize,
     enabled: bool,
@@ -408,6 +412,13 @@ struct Noise {
     env_amplify: bool,
     env_len: f32,
     env_counter: f32,
+
+    #[savestate(skip)]
+    last_raw_sample: f32,
+    #[savestate(skip)]
+    position: f32,
+    #[savestate(skip)]
+    velocity: f32,
 }
 
 impl Noise {
@@ -434,6 +445,10 @@ impl Noise {
             env_amplify: false,
             env_len: 0.0,
             env_counter: 0.0,
+
+            last_raw_sample: 0.0,
+            position: 0.0,
+            velocity: 0.0,
         }
     }
 
@@ -511,7 +526,7 @@ impl Noise {
         }
     }
 
-    fn get_sample(&mut self, addr_space: &mut AddressSpace) -> f32 {
+    fn get_raw_sample(&mut self, addr_space: &mut AddressSpace) -> f32 {
         if !self.enabled {
             return 0.0;
         }
@@ -553,6 +568,17 @@ impl Noise {
 
         if self.lfsr & 1 != 0 { self.vol } else { 0.0 }
     }
+
+    fn get_sample(&mut self, addr_space: &mut AddressSpace) -> f32 {
+        let raw_sample = self.get_raw_sample(addr_space);
+        let diff = raw_sample - self.last_raw_sample;
+
+        self.last_raw_sample = raw_sample;
+        self.velocity = self.velocity * 0.5 + diff * 0.5;
+        self.position += self.velocity;
+
+        self.position
+    }
 }
 
 
@@ -581,12 +607,11 @@ pub struct SoundState {
     postprocess: bool,
 
     #[savestate(skip)]
+    last_raw_sample: (f32, f32),
+    #[savestate(skip)]
     velocity: (f32, f32),
     #[savestate(skip)]
     position: (f32, f32),
-
-    #[savestate(skip)]
-    neutral: (f32, f32),
 }
 
 impl SoundState {
@@ -615,10 +640,9 @@ impl SoundState {
 
             postprocess: false,
 
+            last_raw_sample: (0.0, 0.0),
             velocity: (0.0, 0.0),
             position: (0.0, 0.0),
-
-            neutral: (0.0, 0.0),
         }
     }
 
@@ -700,33 +724,30 @@ impl SoundState {
                 self.ch3_r = cm & (1 << 6) != 0;
             }
 
-            let mut cht_f = (
+            let cht_f = (
                     (ch1_f.0 + ch2_f.0 + ch3_f.0 + ch4_f.0) *
                         self.shared.lvol * 0.005,
                     (ch1_f.1 + ch2_f.1 + ch3_f.1 + ch4_f.1) *
                         self.shared.rvol * 0.005
                 );
 
-            if self.postprocess {
-                let force = (cht_f.0 * 0.3 - self.position.0 * 0.4 -
-                                 self.velocity.0 * 0.1,
-                             cht_f.1 * 0.3 - self.position.1 * 0.4 -
-                                 self.velocity.1 * 0.1);
+            let diff = (cht_f.0 - self.last_raw_sample.0,
+                        cht_f.1 - self.last_raw_sample.1);
 
-                self.velocity.0 += force.0;
-                self.velocity.1 += force.1;
+            let force = (diff.0 - self.position.0 * 0.04,
+                         diff.1 - self.position.1 * 0.04);
 
-                self.position.0 += self.velocity.0;
-                self.position.1 += self.velocity.1;
+            self.last_raw_sample.0 = cht_f.0;
+            self.last_raw_sample.1 = cht_f.1;
 
-                cht_f = self.position;
-            }
+            self.velocity.0 = self.velocity.0 * 0.1 + force.0 * 0.9;
+            self.velocity.1 = self.velocity.1 * 0.1 + force.1 * 0.9;
 
-            self.neutral.0 = self.neutral.0 * 0.995 + cht_f.0 * 0.005;
-            self.neutral.1 = self.neutral.1 * 0.995 + cht_f.1 * 0.005;
+            self.position.0 += self.velocity.0;
+            self.position.1 += self.velocity.1;
 
-            out[self.obuf_i + 0] = cht_f.0 - self.neutral.0;
-            out[self.obuf_i + 1] = cht_f.1 - self.neutral.1;
+            out[self.obuf_i + 0] = self.position.0;
+            out[self.obuf_i + 1] = self.position.1;
 
             self.obuf_i_cycles -= 2097152.0 / 44100.0;
             self.obuf_i += 2;
