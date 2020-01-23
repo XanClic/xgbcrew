@@ -584,14 +584,21 @@ pub fn load_rom(addr_space: &mut AddressSpace) -> SystemParams {
             halted: true,
         }).unwrap().len();
 
-    #[cfg(target_os = "linux")]
-    {
-        let mut extram_len = extram_size * 8192;
-        if rtc {
-            extram_len += rtc_data_length;
-        }
+    let mut extram_len = extram_size * 8192;
+    if rtc {
+        extram_len += rtc_data_length;
+    }
 
+    if cfg!(target_os = "linux") {
         addr_space.extram_file.set_len(extram_len as u64).unwrap();
+    } else {
+        let cur_len = addr_space.extram_file.seek(SeekFrom::End(0)).unwrap();
+
+        if cur_len < extram_len as u64 {
+            let mut empty = Vec::<u8>::new();
+            empty.resize(extram_len - cur_len as usize, 0u8);
+            addr_space.extram_file.write_all(&empty).unwrap();
+        }
     }
 
     let rtc_data = if rtc {
