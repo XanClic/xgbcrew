@@ -1,3 +1,5 @@
+use std::fs;
+use std::io::Seek;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{channel, Sender, Receiver};
 
@@ -636,6 +638,40 @@ pub struct SoundState {
     velocity: (f32, f32),
     #[savestate(skip)]
     position: (f32, f32),
+
+    #[savestate(skip)]
+    raw_file: fs::File,
+    #[savestate(skip)]
+    postprocessed_file: fs::File,
+
+    #[savestate(skip)]
+    ch1_file: fs::File,
+    #[savestate(skip)]
+    ch2_file: fs::File,
+    #[savestate(skip)]
+    ch3_file: fs::File,
+    #[savestate(skip)]
+    ch4_file: fs::File,
+
+    #[savestate(skip)]
+    wave_hdr_template: WaveHdr,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy)]
+struct WaveHdr {
+    riff_signature: u32,
+    riff_length: u32,
+    wave_signature: u32,
+    fmt_signature: u32,
+    fmt_length: u32,
+    fmt_tag: u16,
+    channels: u16,
+    sample_rate: u32,
+    bytes_per_second: u32,
+    frame_size: u16,
+    bits_per_sample: u16,
+    data_signature: u32,
+    data_length: u32,
 }
 
 impl SoundState {
@@ -647,6 +683,60 @@ impl SoundState {
         intbuf.resize(BUFSZ, 0.0);
 
         let (snd, rcv) = channel();
+
+        let mut raw_file = std::fs::OpenOptions::new()
+                        .write(true)
+                        .create(true)
+                        .truncate(true)
+                        .open("/tmp/mixed-raw.wav").unwrap();
+        let mut postprocessed_file = std::fs::OpenOptions::new()
+                        .write(true)
+                        .create(true)
+                        .truncate(true)
+                        .open("/tmp/mixed-post.wav").unwrap();
+        let mut ch1_file = std::fs::OpenOptions::new()
+                        .write(true)
+                        .create(true)
+                        .truncate(true)
+                        .open("/tmp/ch1.wav").unwrap();
+        let mut ch2_file = std::fs::OpenOptions::new()
+                        .write(true)
+                        .create(true)
+                        .truncate(true)
+                        .open("/tmp/ch2.wav").unwrap();
+        let mut ch3_file = std::fs::OpenOptions::new()
+                        .write(true)
+                        .create(true)
+                        .truncate(true)
+                        .open("/tmp/ch3.wav").unwrap();
+        let mut ch4_file = std::fs::OpenOptions::new()
+                        .write(true)
+                        .create(true)
+                        .truncate(true)
+                        .open("/tmp/ch4.wav").unwrap();
+
+        let wave_hdr = WaveHdr {
+            riff_signature: 0x46464952,
+            riff_length: 0,
+            wave_signature: 0x45564157,
+            fmt_signature: 0x20746d66,
+            fmt_length: 16,
+            fmt_tag: 0x0001,
+            channels: 2,
+            sample_rate: 44100,
+            bytes_per_second: 2 * 2 * 44100,
+            frame_size: 2 * 2,
+            bits_per_sample: 16,
+            data_signature: 0x61746164,
+            data_length: 0,
+        };
+
+        bincode::serialize_into(&mut raw_file, &wave_hdr).unwrap();
+        bincode::serialize_into(&mut postprocessed_file, &wave_hdr).unwrap();
+        bincode::serialize_into(&mut ch1_file, &wave_hdr).unwrap();
+        bincode::serialize_into(&mut ch2_file, &wave_hdr).unwrap();
+        bincode::serialize_into(&mut ch3_file, &wave_hdr).unwrap();
+        bincode::serialize_into(&mut ch4_file, &wave_hdr).unwrap();
 
         Self {
             outbuf: Arc::new(Mutex::new(outbuf)),
@@ -672,6 +762,14 @@ impl SoundState {
             last_raw_sample: (0.0, 0.0),
             velocity: (0.0, 0.0),
             position: (0.0, 0.0),
+
+            raw_file: raw_file,
+            postprocessed_file: postprocessed_file,
+            ch1_file: ch1_file,
+            ch2_file: ch2_file,
+            ch3_file: ch3_file,
+            ch4_file: ch4_file,
+            wave_hdr_template: wave_hdr,
         }
     }
 
@@ -742,12 +840,29 @@ impl SoundState {
                 self.ch3_r = cm & (1 << 6) != 0;
             }
 
+            let ch1_s = ((ch1_f.0 * 2047.0) as u16,
+                         (ch1_f.1 * 2047.0) as u16);
+            bincode::serialize_into(&mut self.ch1_file, &ch1_s).unwrap();
+            let ch2_s = ((ch2_f.0 * 2047.0) as u16,
+                         (ch2_f.1 * 2047.0) as u16);
+            bincode::serialize_into(&mut self.ch2_file, &ch2_s).unwrap();
+            let ch3_s = ((ch3_f.0 * 2047.0) as u16,
+                         (ch3_f.1 * 2047.0) as u16);
+            bincode::serialize_into(&mut self.ch3_file, &ch3_s).unwrap();
+            let ch4_s = ((ch4_f.0 * 2047.0) as u16,
+                         (ch4_f.1 * 2047.0) as u16);
+            bincode::serialize_into(&mut self.ch4_file, &ch4_s).unwrap();
+
             let cht_f = (
                     (ch1_f.0 + ch2_f.0 + ch3_f.0 + ch4_f.0) *
                         self.shared.lvol * 0.005,
                     (ch1_f.1 + ch2_f.1 + ch3_f.1 + ch4_f.1) *
                         self.shared.rvol * 0.005
                 );
+
+            let cht_s = ((cht_f.0 * 8192.0) as u16,
+                         (cht_f.1 * 8192.0) as u16);
+            bincode::serialize_into(&mut self.raw_file, &cht_s).unwrap();
 
             let diff = (cht_f.0 - self.last_raw_sample.0,
                         cht_f.1 - self.last_raw_sample.1);
@@ -766,6 +881,10 @@ impl SoundState {
 
             self.intbuf[self.ibuf_i + 0] = self.position.0;
             self.intbuf[self.ibuf_i + 1] = self.position.1;
+
+            let cho_s = ((self.position.0 * 32767.0) as u16,
+                         (self.position.1 * 32767.0) as u16);
+            bincode::serialize_into(&mut self.postprocessed_file, &cho_s).unwrap();
 
             self.ibuf_i_cycles -= 2097152.0 / 44100.0;
             self.ibuf_i = (self.ibuf_i + 2) % BUFSZ;
@@ -792,12 +911,33 @@ impl SoundState {
                         };
                 }
             }
-
         }
     }
 
     pub fn set_postprocessing(&mut self, postprocess: bool) {
         self.postprocess = postprocess;
+    }
+
+    pub fn settle(&mut self) {
+        let mut files = [
+            &mut self.raw_file,
+            &mut self.postprocessed_file,
+            &mut self.ch1_file,
+            &mut self.ch2_file,
+            &mut self.ch3_file,
+            &mut self.ch4_file,
+        ];
+
+        for f in &mut files {
+            let flen = f.seek(std::io::SeekFrom::End(0)).unwrap() as u32;
+
+            let mut hdr = self.wave_hdr_template.clone();
+            hdr.riff_length = flen - 8;
+            hdr.data_length = flen - 44;
+
+            f.seek(std::io::SeekFrom::Start(0)).unwrap();
+            bincode::serialize_into(f, &hdr).unwrap();
+        }
     }
 }
 

@@ -240,8 +240,10 @@ impl System {
                 }
             }
 
-            UIAction::Quit =>
-                std::process::exit(0),
+            UIAction::Quit => {
+                self.sys_state.sound.settle();
+                std::process::exit(0);
+            },
         }
     }
 
