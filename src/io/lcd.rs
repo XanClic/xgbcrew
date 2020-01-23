@@ -470,10 +470,10 @@ fn draw_obj_line(sys_state: &mut SystemState, screen_line: u8,
         let (data_ofs, mut pal_bi) =
             if sys_state.cgb {
                 (if flags & (1 << 3) != 0 { 0x2000 } else { 0 },
-                 ((flags & 7) as usize) * 4)
+                 (flags as usize & 7) * 4)
             } else {
                 (0,
-                 ((flags >> 4) & 1) as usize)
+                 ((flags as usize >> 4) & 1) * 4)
             };
 
         let data = fetch_tile_obj_data(full_vram, data_ofs + ofs, flags,
