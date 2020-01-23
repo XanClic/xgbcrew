@@ -395,11 +395,7 @@ impl Cartridge {
                                       .unwrap();
 
                 let raw_rtc_data = bincode::serialize(&rtc).unwrap();
-                if addr_space.extram_file.write(&raw_rtc_data).unwrap() <
-                    raw_rtc_data.len()
-                {
-                    panic!("Short write");
-                }
+                addr_space.extram_file.write_all(&raw_rtc_data).unwrap();
 
                 /* So we can do a memset */
                 addr_space.extram_rw = true;
@@ -481,9 +477,7 @@ pub fn load_rom(addr_space: &mut AddressSpace) -> SystemParams {
     addr_space.rom_file.seek(SeekFrom::Start(0x100)).unwrap();
 
     let mut raw_rda: [u8; 0x50] = [0u8; 0x50];
-    if addr_space.rom_file.read(&mut raw_rda).unwrap() < 0x50 {
-        panic!("Short read");
-    }
+    addr_space.rom_file.read_exact(&mut raw_rda).unwrap();
 
     let rom_data_area: RomDataArea =
         bincode::deserialize(&raw_rda).unwrap();
@@ -607,11 +601,7 @@ pub fn load_rom(addr_space: &mut AddressSpace) -> SystemParams {
 
             let mut raw_rtc_data = Vec::<u8>::new();
             raw_rtc_data.resize(rtc_data_length, 0u8);
-            if addr_space.extram_file.read(&mut raw_rtc_data).unwrap() <
-                rtc_data_length
-            {
-                panic!("Short read");
-            }
+            addr_space.extram_file.read_exact(&mut raw_rtc_data).unwrap();
 
             Some(bincode::deserialize::<RamRTCData>(&raw_rtc_data).unwrap())
         } else {
