@@ -1,15 +1,12 @@
-use std::sync::{Arc, Mutex};
-use std::sync::mpsc::Sender;
-
 use crate::address_space::AddressSpace;
 use crate::cpu::CPU;
 use crate::io;
-use crate::io::keypad::{KeypadState, KeypadKey};
+use crate::io::keypad::KeypadState;
 use crate::io::lcd::DisplayState;
 use crate::io::sound::SoundState;
 use crate::io::timer::TimerState;
 use crate::sgb::SGBState;
-use crate::ui::UI;
+use crate::ui::{UI, UIAction};
 
 
 const SAVE_STATE_VERSION: u64 = 7;
@@ -91,86 +88,9 @@ pub enum IOReg {
     IE      = 0xff,
 }
 
-#[derive(PartialEq, Eq, Hash, Clone, Copy)]
-pub enum UIScancode {
-    X,
-    Z,
-
-    Shift,
-    Alt,
-    Control,
-
-    Space,
-    Return,
-    Backspace,
-
-    Left,
-    Right,
-    Up,
-    Down,
-
-    F1,
-    F2,
-    F3,
-    F4,
-    F5,
-    F6,
-    F7,
-    F8,
-    F9,
-    F10,
-    F11,
-    F12,
-
-    CA,
-    CB,
-    CStart,
-    CSelect,
-    CLeft,
-    CRight,
-    CUp,
-    CDown,
-    CSkip,
-
-    CLoad(usize),
-    CSave(usize),
-}
-
-enum UIAction {
-    Key(KeypadKey, bool),
-
-    Skip(bool),
-    ToggleAudioPostprocessing,
-
-    LoadState(usize),
-    SaveState(usize),
-
-    Quit,
-}
-
-pub enum UIEvent {
-    Quit,
-    Key { key: UIScancode, down: bool },
-}
-
 pub struct SystemParams {
     pub cgb: bool,
     pub sgb: bool,
-}
-
-pub struct AudioOutputParams {
-    pub freq: usize,
-    pub channels: usize,
-
-    pub buf: Arc<Mutex<Vec<f32>>>,
-    pub buf_step: usize,
-    pub buf_done: Sender<usize>,
-}
-
-struct KeyboardState {
-    shift: bool,
-    alt: bool,
-    control: bool,
 }
 
 #[derive(SaveState)]
@@ -181,8 +101,6 @@ pub struct System {
     #[savestate(skip)]
     pub ui: UI,
 
-    #[savestate(skip)]
-    keyboard_state: KeyboardState,
     #[savestate(skip)]
     base_path: String,
 }
@@ -225,11 +143,6 @@ impl System {
 
             ui: ui,
 
-            keyboard_state: KeyboardState {
-                shift: false,
-                alt: false,
-                control: false,
-            },
             base_path: base_path,
         }
     }
@@ -263,101 +176,6 @@ impl System {
         }
     }
 
-    fn fkey(&mut self, index: usize) -> Option<UIAction> {
-        if !self.keyboard_state.alt && !self.keyboard_state.control {
-            if self.keyboard_state.shift {
-                Some(UIAction::SaveState(index))
-            } else {
-                Some(UIAction::LoadState(index))
-            }
-        } else {
-            None
-        }
-    }
-
-    fn translate_event(&mut self, event: UIEvent) -> Option<UIAction> {
-        if let Some(action) = match event {
-            UIEvent::Quit => Some(UIAction::Quit),
-
-            UIEvent::Key { key, down: true } => {
-                match key {
-                    UIScancode::F1 => self.fkey(0),
-                    UIScancode::F2 => self.fkey(1),
-                    UIScancode::F3 => self.fkey(2),
-                    UIScancode::F4 => self.fkey(3),
-                    UIScancode::F5 => self.fkey(4),
-                    UIScancode::F6 => self.fkey(5),
-                    UIScancode::F7 => self.fkey(6),
-                    UIScancode::F8 => self.fkey(7),
-
-                    UIScancode::F9 => Some(UIAction::ToggleAudioPostprocessing),
-
-                    UIScancode::CLoad(x) => Some(UIAction::LoadState(x)),
-                    UIScancode::CSave(x) => Some(UIAction::SaveState(x)),
-
-                    _ => None,
-                }
-            },
-
-            _ => None,
-        }
-        {
-            return Some(action);
-        }
-
-        match event {
-            UIEvent::Key { key, down } => {
-                match key {
-                    UIScancode::Shift => {
-                        self.keyboard_state.shift = down;
-                        None
-                    },
-
-                    UIScancode::Alt => {
-                        self.keyboard_state.alt = down;
-                        None
-                    },
-
-                    UIScancode::Control => {
-                        self.keyboard_state.control = down;
-                        None
-                    },
-
-                    UIScancode::Space | UIScancode::CSkip =>
-                        Some(UIAction::Skip(down)),
-
-                    UIScancode::X | UIScancode::CA =>
-                        Some(UIAction::Key(KeypadKey::A, down)),
-
-                    UIScancode::Z | UIScancode::CB =>
-                        Some(UIAction::Key(KeypadKey::B, down)),
-
-                    UIScancode::Return | UIScancode::CStart =>
-                        Some(UIAction::Key(KeypadKey::Start, down)),
-
-                    UIScancode::Backspace | UIScancode::CSelect =>
-                        Some(UIAction::Key(KeypadKey::Select, down)),
-
-                    UIScancode::Left | UIScancode::CLeft =>
-                        Some(UIAction::Key(KeypadKey::Left, down)),
-
-                    UIScancode::Right | UIScancode::CRight =>
-                        Some(UIAction::Key(KeypadKey::Right, down)),
-
-                    UIScancode::Up | UIScancode::CUp =>
-                        Some(UIAction::Key(KeypadKey::Up, down)),
-
-                    UIScancode::Down | UIScancode::CDown =>
-                        Some(UIAction::Key(KeypadKey::Down, down)),
-
-                    _ => None,
-                }
-            },
-
-            _ => None,
-        }
-    }
-
     fn perform_ui_action(&mut self, action: UIAction) {
         match action {
             UIAction::Key(key, down) => {
@@ -384,7 +202,7 @@ impl System {
 
     fn poll_events(&mut self) {
         while let Some(evt) = self.ui.poll_event() {
-            if let Some(action) = self.translate_event(evt) {
+            if let Some(action) = self.ui.translate_event(evt) {
                 self.perform_ui_action(action);
             }
         }
@@ -397,16 +215,12 @@ impl System {
         if self.sys_state.vblanked {
             self.sys_state.vblanked = false;
 
-            self.ui.present_frame(&self.sys_state.display.lcd_pixels);
+            self.ui.vblank_events(&self.sys_state);
 
             if self.sys_state.sgb_state.load_border {
                 self.sys_state.sgb_state.load_border = false;
-                self.ui.enable_sgb_border();
-
-                self.ui.set_sgb_border(&self.sys_state.sgb_state.border_pixels);
+                self.ui.load_sgb_border(&self.sys_state);
             }
-
-            self.ui.rumble(self.sys_state.addr_space.cartridge.rumble_state);
 
             self.poll_events();
         }

@@ -3,7 +3,8 @@ use std::sync::mpsc::{channel, Sender, Receiver};
 
 use crate::address_space::AddressSpace;
 use crate::io::IOSpace;
-use crate::system_state::{AudioOutputParams, IOReg, SystemState};
+use crate::system_state::{IOReg, SystemState};
+use crate::ui::AudioOutputParams;
 
 /*
  * We do real-time synchronization through audio, so we need at least

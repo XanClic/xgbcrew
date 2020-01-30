@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Sender, Receiver};
 
-use crate::system_state::{UIEvent, UIScancode};
+use crate::ui::{UIEvent, UIScancode};
 
 
 pub struct SC {
