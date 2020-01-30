@@ -287,6 +287,17 @@ impl SDLUI {
             sc.rumble(state);
         }
     }
+
+    pub fn set_fullscreen(&mut self, state: bool) {
+        let fs_mode =
+            if state {
+                sdl2::video::FullscreenType::Desktop
+            } else {
+                sdl2::video::FullscreenType::Off
+            };
+
+        self.wnd_cvs.window_mut().set_fullscreen(fs_mode).unwrap();
+    }
 }
 
 

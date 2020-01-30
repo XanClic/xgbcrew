@@ -195,6 +195,9 @@ impl System {
             UIAction::SaveState(index) =>
                 self.do_save_state(index, true),
 
+            UIAction::ToggleFullscreen =>
+                self.ui.toggle_fullscreen(),
+
             UIAction::Quit =>
                 std::process::exit(0),
         }

@@ -62,6 +62,8 @@ pub enum UIAction {
     LoadState(usize),
     SaveState(usize),
 
+    ToggleFullscreen,
+
     Quit,
 }
 
@@ -88,7 +90,9 @@ struct KeyboardState {
 
 pub struct UI {
     frontend: SDLUI,
+
     keyboard_state: KeyboardState,
+    fullscreen: bool,
 }
 
 
@@ -102,6 +106,8 @@ impl UI {
                 alt: false,
                 control: false,
             },
+
+            fullscreen: false,
         }
     }
 
@@ -133,6 +139,7 @@ impl UI {
                     UIScancode::F8 => self.fkey(7),
 
                     UIScancode::F9 => Some(UIAction::ToggleAudioPostprocessing),
+                    UIScancode::F11 => Some(UIAction::ToggleFullscreen),
 
                     UIScancode::CLoad(x) => Some(UIAction::LoadState(x)),
                     UIScancode::CSave(x) => Some(UIAction::SaveState(x)),
@@ -216,5 +223,10 @@ impl UI {
     pub fn load_sgb_border(&mut self, sys_state: &SystemState) {
         self.frontend.enable_sgb_border();
         self.frontend.set_sgb_border(&sys_state.sgb_state.border_pixels);
+    }
+
+    pub fn toggle_fullscreen(&mut self) {
+        self.fullscreen = !self.fullscreen;
+        self.frontend.set_fullscreen(self.fullscreen);
     }
 }
