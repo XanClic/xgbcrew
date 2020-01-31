@@ -6,7 +6,6 @@ mod address_space;
 mod cpu;
 mod io;
 mod rom;
-mod sc;
 mod sgb;
 mod system_state;
 mod ui;

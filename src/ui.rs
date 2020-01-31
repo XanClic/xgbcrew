@@ -1,3 +1,4 @@
+pub mod sc;
 pub mod sdl;
 
 use std::sync::{Arc, Mutex};
