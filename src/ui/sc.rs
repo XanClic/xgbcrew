@@ -217,6 +217,13 @@ impl SC {
         }
     }
 
+    pub fn wait_event(&self, timeout: std::time::Duration) -> Option<UIEvent> {
+        match self.events.recv_timeout(timeout) {
+            Ok(x) => Some(x),
+            Err(_) => None,
+        }
+    }
+
     pub fn rumble(&mut self, state: bool) {
         if state {
             self.rumble_on.store(true, Ordering::Relaxed);
@@ -242,7 +249,8 @@ impl SCThread {
         is.insert(UIScancode::CRight, false);
         is.insert(UIScancode::CUp, false);
         is.insert(UIScancode::CDown, false);
-        is.insert(UIScancode::CSkip, false);
+        is.insert(UIScancode::CPrevious, false);
+        is.insert(UIScancode::CNext, false);
         is.insert(UIScancode::CLoad(0), false);
         is.insert(UIScancode::CLoad(1), false);
         is.insert(UIScancode::CSave(0), false);
@@ -258,7 +266,8 @@ impl SCThread {
         bm.insert(SCButton::VirtRight, UIScancode::CRight);
         bm.insert(SCButton::VirtUp, UIScancode::CUp);
         bm.insert(SCButton::VirtDown, UIScancode::CDown);
-        bm.insert(SCButton::Next, UIScancode::CSkip);
+        bm.insert(SCButton::Previous, UIScancode::CPrevious);
+        bm.insert(SCButton::Next, UIScancode::CNext);
         bm.insert(SCButton::BottomLShoulder, UIScancode::CLoad(0));
         bm.insert(SCButton::BottomRShoulder, UIScancode::CLoad(1));
         bm.insert(SCButton::LGrip, UIScancode::CSave(0));

@@ -6,7 +6,7 @@ use crate::io::lcd::DisplayState;
 use crate::io::sound::SoundState;
 use crate::io::timer::TimerState;
 use crate::sgb::SGBState;
-use crate::ui::{UI, UIAction};
+use crate::ui::{UI, UIAction, UIEvent};
 
 
 const SAVE_STATE_VERSION: u64 = 7;
@@ -103,6 +103,9 @@ pub struct System {
 
     #[savestate(skip)]
     base_path: String,
+
+    #[savestate(skip)]
+    paused: bool,
 }
 
 #[derive(SaveState)]
@@ -144,6 +147,8 @@ impl System {
             ui: ui,
 
             base_path: base_path,
+
+            paused: false,
         }
     }
 
@@ -198,6 +203,11 @@ impl System {
             UIAction::ToggleFullscreen =>
                 self.ui.toggle_fullscreen(),
 
+            UIAction::TogglePause => {
+                self.paused = !self.paused;
+                self.ui.set_paused(self.paused);
+            }
+
             UIAction::Quit =>
                 std::process::exit(0),
         }
@@ -208,6 +218,17 @@ impl System {
         self.sys_state.add_cycles(cycles);
     }
 
+    fn get_event(&mut self) -> Option<UIEvent> {
+        /* Pausing will cause us to always return Some() until the
+         * game is unpaused again.  So until then, we are caught up
+         * in the event loop and automatically will not exec anything. */
+        if self.paused {
+            Some(self.ui.wait_event())
+        } else {
+            self.ui.poll_event()
+        }
+    }
+
     fn handle_events(&mut self) {
         self.ui.vblank_events(&self.sys_state);
 
@@ -216,7 +237,7 @@ impl System {
             self.ui.load_sgb_border(&self.sys_state);
         }
 
-        while let Some(evt) = self.ui.poll_event() {
+        while let Some(evt) = self.get_event() {
             if let Some(action) = self.ui.translate_event(evt) {
                 self.perform_ui_action(action);
             }

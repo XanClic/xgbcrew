@@ -150,6 +150,7 @@ impl SDLUI {
 
         let ui_sc =
             match sdl_sc {
+                Scancode::P         => UIScancode::P,
                 Scancode::X         => UIScancode::X,
                 Scancode::Z         => UIScancode::Z,
 
@@ -188,75 +189,97 @@ impl SDLUI {
         Some(ui_sc)
     }
 
+    fn translate_event(&mut self, evt: sdl2::event::Event) -> Option<UIEvent> {
+        match evt {
+            sdl2::event::Event::Quit { timestamp: _ } =>
+                Some(UIEvent::Quit),
+
+            sdl2::event::Event::KeyDown {
+                timestamp: _,
+                window_id: _,
+                keycode: _,
+                scancode: Some(scancode),
+                keymod: _,
+                repeat: false,
+            } => {
+                if let Some(ui_sc) = Self::sdl_sc_to_ui_sc(scancode) {
+                    Some(UIEvent::Key { key: ui_sc, down: true })
+                } else {
+                    None
+                }
+            },
+
+            sdl2::event::Event::KeyUp {
+                timestamp: _,
+                window_id: _,
+                keycode: _,
+                scancode: Some(scancode),
+                keymod: _,
+                repeat: _,
+            } => {
+                if let Some(ui_sc) = Self::sdl_sc_to_ui_sc(scancode) {
+                    Some(UIEvent::Key { key: ui_sc, down: false })
+                } else {
+                    None
+                }
+            },
+
+            sdl2::event::Event::Window {
+                timestamp: _,
+                window_id: _,
+                win_event,
+            } => {
+                match win_event {
+                    sdl2::event::WindowEvent::Resized(w, h) => {
+                        self.update_rects(w as u32, h as u32);
+                    },
+
+                    sdl2::event::WindowEvent::Exposed => {
+                        self.update_bg();
+                    },
+
+                    _ => (),
+                }
+
+                None
+            },
+
+            _ => {
+                None
+            },
+        }
+    }
+
     pub fn poll_event(&mut self) -> Option<UIEvent> {
         if let Some(evt) = self.sdl_evt_pump.poll_event() {
-            let ui_event =
-                match evt {
-                    sdl2::event::Event::Quit { timestamp: _ } =>
-                        Some(UIEvent::Quit),
-
-                    sdl2::event::Event::KeyDown {
-                        timestamp: _,
-                        window_id: _,
-                        keycode: _,
-                        scancode: Some(scancode),
-                        keymod: _,
-                        repeat: false,
-                    } => {
-                        if let Some(ui_sc) = Self::sdl_sc_to_ui_sc(scancode) {
-                            Some(UIEvent::Key { key: ui_sc, down: true })
-                        } else {
-                            None
-                        }
-                    },
-
-                    sdl2::event::Event::KeyUp {
-                        timestamp: _,
-                        window_id: _,
-                        keycode: _,
-                        scancode: Some(scancode),
-                        keymod: _,
-                        repeat: _,
-                    } => {
-                        if let Some(ui_sc) = Self::sdl_sc_to_ui_sc(scancode) {
-                            Some(UIEvent::Key { key: ui_sc, down: false })
-                        } else {
-                            None
-                        }
-                    },
-
-                    sdl2::event::Event::Window {
-                        timestamp: _,
-                        window_id: _,
-                        win_event,
-                    } => {
-                        match win_event {
-                            sdl2::event::WindowEvent::Resized(w, h) => {
-                                self.update_rects(w as u32, h as u32);
-                            },
-
-                            sdl2::event::WindowEvent::Exposed => {
-                                self.update_bg();
-                            },
-
-                            _ => (),
-                        }
-
-                        None
-                    },
-
-                    _ => {
-                        None
-                    },
-                };
-
-            if ui_event.is_some() {
-                ui_event
+            if let Some(ui_event) = self.translate_event(evt) {
+                Some(ui_event)
             } else {
                 self.poll_event()
             }
         } else if let Some(sc) = &mut self.sc {
             sc.poll_event()
+        } else {
+            None
+        }
+    }
+
+    pub fn wait_event(&mut self, timeout: std::time::Duration)
+        -> Option<UIEvent>
+    {
+        let toms = timeout.as_millis() as u32;
+        if let Some(sc) = &mut self.sc {
+            if let Some(ui_event) = sc.wait_event(timeout) {
+                return Some(ui_event);
+            }
+        }
+
+        if let Some(evt) = self.sdl_evt_pump.wait_event_timeout(toms) {
+            if let Some(ui_event) = self.translate_event(evt) {
+                Some(ui_event)
+            } else {
+                self.wait_event(timeout)
+            }
         } else {
             None
         }
@@ -297,6 +320,15 @@ impl SDLUI {
             };
 
         self.wnd_cvs.window_mut().set_fullscreen(fs_mode).unwrap();
+    }
+
+    pub fn set_paused(&mut self, paused: bool) {
+        let dev = self.audio_dev.as_mut().unwrap();
+        if paused {
+            dev.pause();
+        } else {
+            dev.resume();
+        }
     }
 }
 

@@ -11,6 +11,7 @@ use sdl::SDLUI;
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub enum UIScancode {
+    P,
     X,
     Z,
 
@@ -48,7 +49,8 @@ pub enum UIScancode {
     CRight,
     CUp,
     CDown,
-    CSkip,
+    CPrevious,
+    CNext,
 
     CLoad(usize),
     CSave(usize),
@@ -64,6 +66,7 @@ pub enum UIAction {
     SaveState(usize),
 
     ToggleFullscreen,
+    TogglePause,
 
     Quit,
 }
@@ -142,6 +145,9 @@ impl UI {
                     UIScancode::F9 => Some(UIAction::ToggleAudioPostprocessing),
                     UIScancode::F11 => Some(UIAction::ToggleFullscreen),
 
+                    UIScancode::P | UIScancode::CPrevious =>
+                        Some(UIAction::TogglePause),
+
                     UIScancode::CLoad(x) => Some(UIAction::LoadState(x)),
                     UIScancode::CSave(x) => Some(UIAction::SaveState(x)),
 
@@ -173,7 +179,7 @@ impl UI {
                         None
                     },
 
-                    UIScancode::Space | UIScancode::CSkip =>
+                    UIScancode::Space | UIScancode::CNext =>
                         Some(UIAction::Skip(down)),
 
                     UIScancode::X | UIScancode::CA =>
@@ -212,6 +218,16 @@ impl UI {
         self.frontend.poll_event()
     }
 
+    pub fn wait_event(&mut self) -> UIEvent {
+        let to = std::time::Duration::from_millis(50);
+
+        loop {
+            if let Some(evt) = self.frontend.wait_event(to) {
+                return evt;
+            }
+        }
+    }
+
     pub fn setup_audio(&mut self, params: AudioOutputParams) {
         self.frontend.setup_audio(params)
     }
@@ -229,5 +245,9 @@ impl UI {
     pub fn toggle_fullscreen(&mut self) {
         self.fullscreen = !self.fullscreen;
         self.frontend.set_fullscreen(self.fullscreen);
+    }
+
+    pub fn set_paused(&mut self, paused: bool) {
+        self.frontend.set_paused(paused);
     }
 }
