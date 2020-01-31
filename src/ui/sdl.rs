@@ -87,6 +87,11 @@ impl SDLUI {
         self.audio_dev = Some(adev);
     }
 
+    fn show_lcd(&mut self) {
+        self.wnd_cvs.copy(&self.lcd_txt, None, Some(self.lcd_rect)).unwrap();
+        self.wnd_cvs.present();
+    }
+
     pub fn present_frame(&mut self, pixels: &[u32; 160 * 144]) {
         let pixels8 = unsafe {
             std::slice::from_raw_parts(pixels.as_ptr() as *const u8,
@@ -100,8 +105,7 @@ impl SDLUI {
         }
 
         self.lcd_txt.update(None, pixels8, 160 * 4).unwrap();
-        self.wnd_cvs.copy(&self.lcd_txt, None, Some(self.lcd_rect)).unwrap();
-        self.wnd_cvs.present();
+        self.show_lcd();
     }
 
     fn update_bg(&mut self) {
@@ -231,6 +235,7 @@ impl SDLUI {
 
                     sdl2::event::WindowEvent::Exposed => {
                         self.update_bg();
+                        self.show_lcd();
                     },
 
                     _ => (),
