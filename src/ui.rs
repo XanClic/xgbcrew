@@ -253,9 +253,11 @@ impl UI {
         self.frontend.setup_audio(params)
     }
 
-    pub fn vblank_events(&mut self, sys_state: &SystemState) {
+    pub fn refresh_lcd(&mut self, sys_state: &SystemState) {
         self.frontend.present_frame(&sys_state.display.lcd_pixels);
+    }
 
+    pub fn vblank_events(&mut self, sys_state: &SystemState) {
         if let Some(sc) = &mut self.sc {
             sc.rumble(sys_state.addr_space.cartridge.rumble_state);
         }

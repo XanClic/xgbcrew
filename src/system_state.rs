@@ -194,8 +194,10 @@ impl System {
             UIAction::ToggleAudioPostprocessing =>
                 self.sys_state.sound.toggle_postprocessing(),
 
-            UIAction::LoadState(index) =>
-                self.do_save_state(index, false),
+            UIAction::LoadState(index) => {
+                self.do_save_state(index, false);
+                self.ui.refresh_lcd(&self.sys_state);
+            },
 
             UIAction::SaveState(index) =>
                 self.do_save_state(index, true),
@@ -249,6 +251,7 @@ impl System {
             self.exec();
             if self.sys_state.vblanked {
                 self.sys_state.vblanked = false;
+                self.ui.refresh_lcd(&self.sys_state);
                 self.handle_events();
             }
         }
