@@ -214,24 +214,26 @@ impl System {
     fn exec(&mut self) {
         let cycles = self.cpu.exec(&mut self.sys_state);
         self.sys_state.add_cycles(cycles);
+    }
 
-        if self.sys_state.vblanked {
-            self.sys_state.vblanked = false;
+    fn handle_events(&mut self) {
+        self.ui.vblank_events(&self.sys_state);
 
-            self.ui.vblank_events(&self.sys_state);
-
-            if self.sys_state.sgb_state.load_border {
-                self.sys_state.sgb_state.load_border = false;
-                self.ui.load_sgb_border(&self.sys_state);
-            }
-
-            self.poll_events();
+        if self.sys_state.sgb_state.load_border {
+            self.sys_state.sgb_state.load_border = false;
+            self.ui.load_sgb_border(&self.sys_state);
         }
+
+        self.poll_events();
     }
 
     pub fn main_loop(&mut self) {
         loop {
             self.exec();
+            if self.sys_state.vblanked {
+                self.sys_state.vblanked = false;
+                self.handle_events();
+            }
         }
     }
 }
