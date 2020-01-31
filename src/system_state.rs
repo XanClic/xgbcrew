@@ -211,7 +211,7 @@ impl System {
         }
     }
 
-    pub fn exec(&mut self) {
+    fn exec(&mut self) {
         let cycles = self.cpu.exec(&mut self.sys_state);
         self.sys_state.add_cycles(cycles);
 
