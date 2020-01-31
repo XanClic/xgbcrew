@@ -234,44 +234,35 @@ impl SC {
 }
 
 
+macro_rules! binding {
+    ($is:ident, $bm: ident, $sc:ident, $ui:expr) => {
+        $is.insert($ui, false);
+        $bm.insert(SCButton::$sc, $ui);
+    };
+}
+
 impl SCThread {
     fn spawn(dev: hidapi::HidDevice, events: Sender<UIEvent>,
              rumble_on: Arc<AtomicBool>, rumble_off: Arc<AtomicBool>)
         -> std::thread::JoinHandle<()>
     {
         let mut is = HashMap::new();
-
-        is.insert(UIScancode::CA, false);
-        is.insert(UIScancode::CB, false);
-        is.insert(UIScancode::CStart, false);
-        is.insert(UIScancode::CSelect, false);
-        is.insert(UIScancode::CLeft, false);
-        is.insert(UIScancode::CRight, false);
-        is.insert(UIScancode::CUp, false);
-        is.insert(UIScancode::CDown, false);
-        is.insert(UIScancode::CPrevious, false);
-        is.insert(UIScancode::CNext, false);
-        is.insert(UIScancode::CLoad(0), false);
-        is.insert(UIScancode::CLoad(1), false);
-        is.insert(UIScancode::CSave(0), false);
-        is.insert(UIScancode::CSave(1), false);
-
         let mut bm = HashMap::new();
 
-        bm.insert(SCButton::B, UIScancode::CA);
-        bm.insert(SCButton::A, UIScancode::CB);
-        bm.insert(SCButton::Y, UIScancode::CStart);
-        bm.insert(SCButton::X, UIScancode::CSelect);
-        bm.insert(SCButton::VirtLeft, UIScancode::CLeft);
-        bm.insert(SCButton::VirtRight, UIScancode::CRight);
-        bm.insert(SCButton::VirtUp, UIScancode::CUp);
-        bm.insert(SCButton::VirtDown, UIScancode::CDown);
-        bm.insert(SCButton::Previous, UIScancode::CPrevious);
-        bm.insert(SCButton::Next, UIScancode::CNext);
-        bm.insert(SCButton::BottomLShoulder, UIScancode::CLoad(0));
-        bm.insert(SCButton::BottomRShoulder, UIScancode::CLoad(1));
-        bm.insert(SCButton::LGrip, UIScancode::CSave(0));
-        bm.insert(SCButton::RGrip, UIScancode::CSave(1));
+        binding!(is, bm, B, UIScancode::CA);
+        binding!(is, bm, A, UIScancode::CB);
+        binding!(is, bm, Y, UIScancode::CStart);
+        binding!(is, bm, X, UIScancode::CSelect);
+        binding!(is, bm, VirtLeft, UIScancode::CLeft);
+        binding!(is, bm, VirtRight, UIScancode::CRight);
+        binding!(is, bm, VirtUp, UIScancode::CUp);
+        binding!(is, bm, VirtDown, UIScancode::CDown);
+        binding!(is, bm, Previous, UIScancode::CPrevious);
+        binding!(is, bm, Next, UIScancode::CNext);
+        binding!(is, bm, BottomLShoulder, UIScancode::CLoad(0));
+        binding!(is, bm, BottomRShoulder, UIScancode::CLoad(1));
+        binding!(is, bm, LGrip, UIScancode::CSave(0));
+        binding!(is, bm, RGrip, UIScancode::CSave(1));
 
         let obj = Self {
             dev: dev,
