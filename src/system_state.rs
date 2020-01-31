@@ -203,14 +203,6 @@ impl System {
         }
     }
 
-    fn poll_events(&mut self) {
-        while let Some(evt) = self.ui.poll_event() {
-            if let Some(action) = self.ui.translate_event(evt) {
-                self.perform_ui_action(action);
-            }
-        }
-    }
-
     fn exec(&mut self) {
         let cycles = self.cpu.exec(&mut self.sys_state);
         self.sys_state.add_cycles(cycles);
@@ -224,7 +216,11 @@ impl System {
             self.ui.load_sgb_border(&self.sys_state);
         }
 
-        self.poll_events();
+        while let Some(evt) = self.ui.poll_event() {
+            if let Some(action) = self.ui.translate_event(evt) {
+                self.perform_ui_action(action);
+            }
+        }
     }
 
     pub fn main_loop(&mut self) {
