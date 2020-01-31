@@ -2,7 +2,6 @@ use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 
 use crate::ui::{AudioOutputParams, UIEvent, UIScancode};
-use crate::ui::sc::SC;
 
 
 pub struct SDLUI {
@@ -18,8 +17,6 @@ pub struct SDLUI {
     full_screen_update_counter: u32,
 
     audio_dev: Option<sdl2::audio::AudioDevice<AudioOutput>>,
-
-    sc: Option<SC>,
 }
 
 impl SDLUI {
@@ -65,8 +62,6 @@ impl SDLUI {
             full_screen_update_counter: 0,
 
             audio_dev: None,
-
-            sc: SC::new(),
         }
     }
 
@@ -257,8 +252,6 @@ impl SDLUI {
             } else {
                 self.poll_event()
             }
-        } else if let Some(sc) = &mut self.sc {
-            sc.poll_event()
         } else {
             None
         }
@@ -268,11 +261,6 @@ impl SDLUI {
         -> Option<UIEvent>
     {
         let toms = timeout.as_millis() as u32;
-        if let Some(sc) = &mut self.sc {
-            if let Some(ui_event) = sc.wait_event(timeout) {
-                return Some(ui_event);
-            }
-        }
 
         if let Some(evt) = self.sdl_evt_pump.wait_event_timeout(toms) {
             if let Some(ui_event) = self.translate_event(evt) {
@@ -303,12 +291,6 @@ impl SDLUI {
         };
 
         self.sgb_border_txt.update(None, pixels8, 256 * 4).unwrap();
-    }
-
-    pub fn rumble(&mut self, state: bool) {
-        if let Some(sc) = &mut self.sc {
-            sc.rumble(state);
-        }
     }
 
     pub fn set_fullscreen(&mut self, state: bool) {

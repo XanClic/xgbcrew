@@ -7,6 +7,7 @@ use std::sync::mpsc::Sender;
 use crate::io::keypad::KeypadKey;
 use crate::system_state::SystemState;
 use sdl::SDLUI;
+use sc::SC;
 
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
@@ -94,6 +95,7 @@ struct KeyboardState {
 
 pub struct UI {
     frontend: SDLUI,
+    sc: Option<SC>,
 
     keyboard_state: KeyboardState,
     fullscreen: bool,
@@ -101,9 +103,10 @@ pub struct UI {
 
 
 impl UI {
-    pub fn new(frontend: SDLUI) -> Self {
+    pub fn new() -> Self {
         Self {
-            frontend: frontend,
+            frontend: SDLUI::new(),
+            sc: SC::new(),
 
             keyboard_state: KeyboardState {
                 shift: false,
@@ -214,15 +217,33 @@ impl UI {
         }
     }
 
+    fn poll_sc_event(&mut self) -> Option<UIEvent> {
+        if let Some(sc) = &mut self.sc {
+            sc.poll_event()
+        } else {
+            None
+        }
+    }
+
     pub fn poll_event(&mut self) -> Option<UIEvent> {
-        self.frontend.poll_event()
+        if let Some(evt) = self.poll_sc_event() {
+            Some(evt)
+        } else {
+            self.frontend.poll_event()
+        }
     }
 
     pub fn wait_event(&mut self) -> UIEvent {
         let to = std::time::Duration::from_millis(50);
 
         loop {
-            if let Some(evt) = self.frontend.wait_event(to) {
+            if let Some(sc) = &mut self.sc {
+                if let Some(evt) = sc.wait_event(to) {
+                    return evt;
+                } else if let Some(evt) = self.frontend.poll_event() {
+                    return evt;
+                }
+            } else if let Some(evt) = self.frontend.wait_event(to) {
                 return evt;
             }
         }
@@ -234,7 +255,10 @@ impl UI {
 
     pub fn vblank_events(&mut self, sys_state: &SystemState) {
         self.frontend.present_frame(&sys_state.display.lcd_pixels);
-        self.frontend.rumble(sys_state.addr_space.cartridge.rumble_state);
+
+        if let Some(sc) = &mut self.sc {
+            sc.rumble(sys_state.addr_space.cartridge.rumble_state);
+        }
     }
 
     pub fn load_sgb_border(&mut self, sys_state: &SystemState) {

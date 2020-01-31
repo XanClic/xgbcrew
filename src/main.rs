@@ -17,7 +17,6 @@ use regex::Regex;
 use address_space::AddressSpace;
 use system_state::{System, SystemState};
 use ui::UI;
-use ui::sdl::SDLUI;
 
 
 fn real_main() {
@@ -42,8 +41,7 @@ fn real_main() {
     let sys_params = rom::load_rom(&mut addr_space);
 
     let system_state = SystemState::new(addr_space, sys_params);
-    let ui = UI::new(SDLUI::new());
-    let mut system = System::new(system_state, ui, base_path);
+    let mut system = System::new(system_state, UI::new(), base_path);
 
     system.main_loop();
 }
