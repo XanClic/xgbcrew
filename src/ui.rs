@@ -99,6 +99,7 @@ pub struct UI {
 
     keyboard_state: KeyboardState,
     fullscreen: bool,
+    paused: bool,
 }
 
 
@@ -126,6 +127,7 @@ impl UI {
             },
 
             fullscreen: false,
+            paused: false,
         }
     }
 
@@ -274,7 +276,8 @@ impl UI {
 
     pub fn vblank_events(&mut self, sys_state: &SystemState) {
         if let Some(sc) = &mut self.sc {
-            sc.rumble(sys_state.addr_space.cartridge.rumble_state);
+            sc.rumble(sys_state.addr_space.cartridge.rumble_state &&
+                      !self.paused);
         }
     }
 
@@ -289,7 +292,14 @@ impl UI {
     }
 
     pub fn set_paused(&mut self, paused: bool) {
+        self.paused = paused;
         self.frontend.set_paused(paused);
+
+        if !paused {
+            if let Some(sc) = &mut self.sc {
+                sc.rumble(false);
+            }
+        }
     }
 
     pub fn osd_timed_message(&mut self, text: String,
