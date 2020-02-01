@@ -216,7 +216,7 @@ impl SDLUI {
         self.border_rect = sdl2::rect::Rect::from_center(center,
                                                          border_w, border_h);
 
-        let font_path = std::path::Path::new("./DejaVuSans.ttf");
+        let font_path = std::path::Path::new("./font.ttf");
         let font_size = (aspect_w * 12 / raw_w) as u16;
 
         {
