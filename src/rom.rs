@@ -442,11 +442,11 @@ impl Cartridge {
             },
 
             0x4000 | 0x5000 => {
-                if c.extram {
-                    if c.rumble {
-                        c.rumble_state = val & (1 << 3) != 0;
-                    }
+                if c.rumble {
+                    c.rumble_state = val & (1 << 3) != 0;
+                }
 
+                if c.extram {
                     let mask = if c.rumble { 0x07 } else { 0x0f };
                     let bank = val as usize & mask;
                     addr_space.extram_bank = Some(bank % c.extram_size);
