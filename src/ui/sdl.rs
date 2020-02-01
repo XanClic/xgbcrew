@@ -18,7 +18,7 @@ pub struct SDLUI {
     sgb_border_txt: sdl2::render::Texture<'static>,
     border_rect: sdl2::rect::Rect,
 
-    font: sdl2_ttf::Font<'static>,
+    font: Option<sdl2_ttf::Font<'static>>,
     osd_sfc: Option<sdl2::surface::Surface<'static>>,
     osd_txt: Option<sdl2::render::Texture<'static>>,
     current_osd_text: Option<String>,
@@ -57,19 +57,10 @@ impl SDLUI {
             )
         };
 
-        let sdl_ttf = sdl2_ttf::init().unwrap();
-        let font_path = std::path::Path::new("./DejaVuSans.ttf");
-        let font = unsafe {
-            std::mem::transmute::<sdl2_ttf::Font,
-                                  sdl2_ttf::Font<'static>>(
-                sdl_ttf.load_font(font_path, 12).unwrap()
-            )
-        };
-
-        Self {
+        let mut this = Self {
             sdl_audio: audio,
             sdl_evt_pump: evt_pump,
-            sdl_ttf: sdl_ttf,
+            sdl_ttf: sdl2_ttf::init().unwrap(),
 
             wnd_cvs: cvs,
             lcd_txt: lcd_txt,
@@ -78,14 +69,18 @@ impl SDLUI {
             sgb_border_txt: sgb_border_txt,
             border_rect: sdl2::rect::Rect::new(0, 0, 160, 144),
 
-            font: font,
+            font: None,
             osd_sfc: None,
             osd_txt: None,
             current_osd_text: None,
             osd_timeout: None,
 
             audio_dev: None,
-        }
+        };
+
+        this.update_rects(160, 144);
+
+        this
     }
 
     pub fn setup_audio(&mut self, params: AudioOutputParams) {
@@ -122,15 +117,21 @@ impl SDLUI {
     {
         let txtc = self.wnd_cvs.texture_creator();
 
+        if self.font.is_none() {
+            println!("{}", text);
+            return;
+        }
+        let font = self.font.as_ref().unwrap();
+
         self.osd_txt = None;
 
         let osd_sfc = unsafe {
             std::mem::transmute::<sdl2::surface::Surface,
                                   sdl2::surface::Surface<'static>>(
-                self.font.render(text.as_ref())
-                         .blended_wrapped(sdl2::pixels::Color::RGB(255, 0, 0),
-                                          self.wnd_cvs.output_size().unwrap().0)
-                         .unwrap()
+                font.render(text.as_ref())
+                    .blended_wrapped(sdl2::pixels::Color::RGB(255, 0, 0),
+                                     self.wnd_cvs.output_size().unwrap().0)
+                    .unwrap()
             )
         };
         self.osd_sfc = Some(osd_sfc);
@@ -217,12 +218,21 @@ impl SDLUI {
 
         let font_path = std::path::Path::new("./DejaVuSans.ttf");
         let font_size = (aspect_w * 12 / raw_w) as u16;
-        self.font = unsafe {
-            std::mem::transmute::<sdl2_ttf::Font,
-                                  sdl2_ttf::Font<'static>>(
-                self.sdl_ttf.load_font(font_path, font_size).unwrap()
-            )
-        };
+
+        {
+            let font_lt = self.sdl_ttf.load_font(font_path, font_size);
+            self.font = match font_lt {
+                Ok(f) => Some(unsafe {
+                    std::mem::transmute::<sdl2_ttf::Font,
+                                          sdl2_ttf::Font<'static>>(f)
+                }),
+
+                Err(e) => {
+                    eprintln!("Failed to load {:?}: {}", font_path, e);
+                    None
+                },
+            };
+        }
 
         if let Some(text) = self.current_osd_text.take() {
             let now = std::time::Instant::now();
