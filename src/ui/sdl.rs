@@ -8,13 +8,21 @@ pub struct SDLUI {
     sdl_audio: sdl2::AudioSubsystem,
     sdl_evt_pump: sdl2::EventPump,
 
+    #[allow(dead_code)]
+    sdl_ttf: sdl2_ttf::Sdl2TtfContext,
+
     wnd_cvs: sdl2::render::Canvas<sdl2::video::Window>,
     lcd_txt: sdl2::render::Texture<'static>,
     lcd_rect: sdl2::rect::Rect,
     sgb_border: bool,
     sgb_border_txt: sdl2::render::Texture<'static>,
     border_rect: sdl2::rect::Rect,
-    full_screen_update_counter: u32,
+
+    font: sdl2_ttf::Font<'static>,
+    osd_sfc: Option<sdl2::surface::Surface<'static>>,
+    osd_txt: Option<sdl2::render::Texture<'static>>,
+    current_osd_text: Option<String>,
+    osd_timeout: Option<std::time::Instant>,
 
     audio_dev: Option<sdl2::audio::AudioDevice<AudioOutput>>,
 }
@@ -49,9 +57,19 @@ impl SDLUI {
             )
         };
 
+        let sdl_ttf = sdl2_ttf::init().unwrap();
+        let font_path = std::path::Path::new("./DejaVuSans.ttf");
+        let font = unsafe {
+            std::mem::transmute::<sdl2_ttf::Font,
+                                  sdl2_ttf::Font<'static>>(
+                sdl_ttf.load_font(font_path, 12).unwrap()
+            )
+        };
+
         Self {
             sdl_audio: audio,
             sdl_evt_pump: evt_pump,
+            sdl_ttf: sdl_ttf,
 
             wnd_cvs: cvs,
             lcd_txt: lcd_txt,
@@ -59,7 +77,12 @@ impl SDLUI {
             sgb_border: false,
             sgb_border_txt: sgb_border_txt,
             border_rect: sdl2::rect::Rect::new(0, 0, 160, 144),
-            full_screen_update_counter: 0,
+
+            font: font,
+            osd_sfc: None,
+            osd_txt: None,
+            current_osd_text: None,
+            osd_timeout: None,
 
             audio_dev: None,
         }
@@ -87,8 +110,63 @@ impl SDLUI {
         self.audio_dev = Some(adev);
     }
 
+    pub fn osd_drop_message(&mut self) {
+        self.osd_sfc = None;
+        self.osd_txt = None;
+        self.current_osd_text = None;
+        self.osd_timeout = None;
+    }
+
+    pub fn osd_timed_message(&mut self, text: String,
+                             duration: std::time::Duration)
+    {
+        let txtc = self.wnd_cvs.texture_creator();
+
+        self.osd_txt = None;
+
+        let osd_sfc = unsafe {
+            std::mem::transmute::<sdl2::surface::Surface,
+                                  sdl2::surface::Surface<'static>>(
+                self.font.render(text.as_ref())
+                         .blended_wrapped(sdl2::pixels::Color::RGB(255, 0, 0),
+                                          self.wnd_cvs.output_size().unwrap().0)
+                         .unwrap()
+            )
+        };
+        self.osd_sfc = Some(osd_sfc);
+
+        let osd_txt = unsafe {
+            let sfc_ref = self.osd_sfc.as_ref().unwrap();
+            std::mem::transmute::<sdl2::render::Texture,
+                                  sdl2::render::Texture<'static>>(
+                txtc.create_texture_from_surface(sfc_ref).unwrap()
+            )
+        };
+        self.osd_txt = Some(osd_txt);
+
+        self.current_osd_text = Some(text);
+        self.osd_timeout = Some(std::time::Instant::now() + duration);
+    }
+
     fn show_lcd(&mut self) {
         self.wnd_cvs.copy(&self.lcd_txt, None, Some(self.lcd_rect)).unwrap();
+
+        if let Some(sfc) = self.osd_sfc.as_ref() {
+            let txt = self.osd_txt.as_mut().unwrap();
+            self.wnd_cvs.copy(txt, None, Some(sfc.rect())).unwrap();
+
+            let now = std::time::Instant::now();
+            let timeout = self.osd_timeout.unwrap();
+            if now >= timeout {
+                self.osd_drop_message();
+            } else {
+                let diff = (timeout - now).as_millis() as u32;
+                if diff < 512 {
+                    txt.set_alpha_mod((diff / 2) as u8);
+                }
+            }
+        }
+
         self.wnd_cvs.present();
     }
 
@@ -98,13 +176,9 @@ impl SDLUI {
                                        pixels.len() * 4)
         };
 
-        self.full_screen_update_counter += 1;
-        if self.full_screen_update_counter == 30 {
-            self.update_bg();
-            self.full_screen_update_counter = 0;
-        }
-
         self.lcd_txt.update(None, pixels8, 160 * 4).unwrap();
+
+        self.update_bg();
         self.show_lcd();
     }
 
@@ -141,7 +215,25 @@ impl SDLUI {
         self.border_rect = sdl2::rect::Rect::from_center(center,
                                                          border_w, border_h);
 
-        self.update_bg();
+        let font_path = std::path::Path::new("./DejaVuSans.ttf");
+        let font_size = (aspect_w * 12 / raw_w) as u16;
+        self.font = unsafe {
+            std::mem::transmute::<sdl2_ttf::Font,
+                                  sdl2_ttf::Font<'static>>(
+                self.sdl_ttf.load_font(font_path, font_size).unwrap()
+            )
+        };
+
+        if let Some(text) = self.current_osd_text.take() {
+            let now = std::time::Instant::now();
+            let timeout = self.osd_timeout.unwrap();
+
+            if timeout > now {
+                self.osd_timed_message(text, timeout - now);
+            } else {
+                self.osd_drop_message();
+            }
+        }
     }
 
     fn sdl_sc_to_ui_sc(sdl_sc: sdl2::keyboard::Scancode) -> Option<UIScancode> {

@@ -122,6 +122,9 @@ pub struct SystemState {
     pub realtime: bool,
     pub vblanked: bool,
 
+    #[savestate(skip)]
+    sound_postprocess: bool,
+
     pub display: DisplayState,
     pub keypad: KeypadState,
     pub sound: SoundState,
@@ -166,18 +169,20 @@ impl System {
             match opts.open(&fname) {
                 Ok(f) => f,
                 Err(e) => {
-                    println!("Failed to open {}: {}", fname, e);
+                    let msg = format!("Failed to load SS {} ({}):\n{}",
+                                      index + 1, fname, e);
+                    self.ui.osd_message(msg);
                     return;
                 }
             };
 
         if save {
             savestate::export_root(self, &mut file, SAVE_STATE_VERSION);
-            println!("Exported save state {} to {}", index + 1, fname);
+            self.ui.osd_message(format!("Created save state {}", index + 1));
         } else {
             savestate::import_root(self, &mut file, SAVE_STATE_VERSION);
             self.sys_state.keypad.post_import(&mut self.sys_state.addr_space);
-            println!("Imported save state {} from {}", index + 1, fname);
+            self.ui.osd_message(format!("Loaded save state {}", index + 1));
         }
     }
 
@@ -191,8 +196,19 @@ impl System {
             UIAction::Skip(skip) =>
                 self.sys_state.realtime = !skip,
 
-            UIAction::ToggleAudioPostprocessing =>
-                self.sys_state.sound.toggle_postprocessing(),
+            UIAction::ToggleAudioPostprocessing => {
+                self.sys_state.toggle_sound_postprocess();
+
+                let pp_state =
+                    if self.sys_state.sound_postprocess {
+                        "enabled"
+                    } else {
+                        "disabled"
+                    };
+
+                self.ui.osd_message(format!("Sound postprocessing {}",
+                                            pp_state));
+            },
 
             UIAction::LoadState(index) => {
                 self.do_save_state(index, false);
@@ -208,6 +224,12 @@ impl System {
             UIAction::TogglePause => {
                 self.paused = !self.paused;
                 self.ui.set_paused(self.paused);
+
+                if self.paused {
+                    self.ui.osd_message(String::from("Paused"));
+                } else {
+                    self.ui.osd_message(String::from("Resumed"));
+                }
             }
 
             UIAction::Quit =>
@@ -225,7 +247,7 @@ impl System {
          * game is unpaused again.  So until then, we are caught up
          * in the event loop and automatically will not exec anything. */
         if self.paused {
-            Some(self.ui.wait_event())
+            Some(self.ui.wait_event(&self.sys_state))
         } else {
             self.ui.poll_event()
         }
@@ -270,6 +292,8 @@ impl SystemState {
             realtime: true,
             vblanked: false,
 
+            sound_postprocess: false,
+
             display: DisplayState::new(),
             keypad: KeypadState::new(),
             sound: SoundState::new(),
@@ -296,5 +320,10 @@ impl SystemState {
         io::lcd::add_cycles(self, dcycles);
         self.sound.add_cycles(&mut self.addr_space, dcycles, self.realtime);
         io::timer::add_cycles(self, count);
+    }
+
+    fn toggle_sound_postprocess(&mut self) {
+        self.sound_postprocess = !self.sound_postprocess;
+        self.sound.set_postprocessing(self.sound_postprocess);
     }
 }

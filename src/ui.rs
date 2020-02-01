@@ -104,9 +104,20 @@ pub struct UI {
 
 impl UI {
     pub fn new() -> Self {
+        let mut frontend = SDLUI::new();
+
+        let sc = match SC::new() {
+            Ok(sc) => sc,
+            Err(msg) => {
+                let d = std::time::Duration::from_secs(5);
+                frontend.osd_timed_message(msg, d);
+                None
+            },
+        };
+
         Self {
-            frontend: SDLUI::new(),
-            sc: SC::new(),
+            frontend: frontend,
+            sc: sc,
 
             keyboard_state: KeyboardState {
                 shift: false,
@@ -233,10 +244,14 @@ impl UI {
         }
     }
 
-    pub fn wait_event(&mut self) -> UIEvent {
+    pub fn wait_event(&mut self, sys_state: &SystemState) -> UIEvent {
         let to = std::time::Duration::from_millis(50);
 
         loop {
+            /* TODO: Maybe this shouldn’t be here, but we need it for
+             *       OSD messages when paused */
+            self.refresh_lcd(sys_state);
+
             if let Some(sc) = &mut self.sc {
                 if let Some(evt) = sc.wait_event(to) {
                     return evt;
@@ -275,5 +290,15 @@ impl UI {
 
     pub fn set_paused(&mut self, paused: bool) {
         self.frontend.set_paused(paused);
+    }
+
+    pub fn osd_timed_message(&mut self, text: String,
+                             duration: std::time::Duration)
+    {
+        self.frontend.osd_timed_message(text, duration);
+    }
+
+    pub fn osd_message(&mut self, text: String) {
+        self.osd_timed_message(text, std::time::Duration::from_secs(3));
     }
 }

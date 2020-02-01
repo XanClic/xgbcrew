@@ -114,12 +114,11 @@ enum SCButton {
 
 
 impl SC {
-    pub fn new() -> Option<Self> {
+    pub fn new() -> Result<Option<Self>, String> {
         let hidapi = match HidApi::new() {
             Ok(x) => x,
             Err(e) => {
-                println!("Error initializing HIDAPI: {}", e);
-                return None;
+                return Err(format!("Error initializing HIDAPI: {}", e));
             },
         };
 
@@ -139,12 +138,11 @@ impl SC {
                 match di.open_device(&hidapi) {
                     Ok(x) => x,
                     Err(e) => {
-                        println!("Error opening SC: {}", e);
-                        return None;
+                        return Err(format!("Error opening SC: {}", e));
                     },
                 },
 
-            None => return None,
+            None => return Ok(None),
         };
 
         let mut init_0 = [0u8; 65];
@@ -202,12 +200,12 @@ impl SC {
         let evt_thr = SCThread::spawn(dev, events_s,
                                       rumble_on.clone(), rumble_off.clone());
 
-        Some(Self {
+        Ok(Some(Self {
             events: events_r,
             rumble_on: rumble_on,
             rumble_off: rumble_off,
             event_thread: evt_thr,
-        })
+        }))
     }
 
     pub fn poll_event(&self) -> Option<UIEvent> {
@@ -324,7 +322,7 @@ impl SCThread {
                 },
 
                 Err(e) => {
-                    println!("Error while retrieving data from SC: {}", e);
+                    eprintln!("Error while retrieving data from SC: {}", e);
                     return;
                 }
             }

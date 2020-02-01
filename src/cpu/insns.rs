@@ -81,9 +81,6 @@ fn prefix0x10(cpu: &mut CPU, sys_state: &mut SystemState) {
     }
 
     sys_state.io_set_reg(IOReg::KEY1, key1);
-
-    println!("Using {} speed",
-             if sys_state.double_speed { "double" } else { "single" });
 }
 
 macro_rules! acc_op_r8 {

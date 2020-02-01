@@ -796,8 +796,8 @@ impl SoundState {
         }
     }
 
-    pub fn toggle_postprocessing(&mut self) {
-        self.postprocess = !self.postprocess;
+    pub fn set_postprocessing(&mut self, postprocess: bool) {
+        self.postprocess = postprocess;
     }
 }
 
