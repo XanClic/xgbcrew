@@ -14,6 +14,24 @@ impl<U: serde::ser::Serialize + serde::de::DeserializeOwned> SaveState for U {
     }
 }
 
+impl<T: Sized> SaveState for [T] {
+    fn export<S: std::io::Write>(&self, stream: &mut S, _version: u64) {
+        let byte_len = std::mem::size_of::<T>() * self.len();
+        let obj_u8 = unsafe {
+            std::slice::from_raw_parts(self.as_ptr() as *const u8, byte_len)
+        };
+        stream.write_all(obj_u8).unwrap();
+    }
+
+    fn import<S: std::io::Read>(&mut self, stream: &mut S, _version: u64) {
+        let byte_len = std::mem::size_of::<T>() * self.len();
+        let obj_u8 = unsafe {
+            std::slice::from_raw_parts_mut(self.as_mut_ptr() as *mut u8, byte_len)
+        };
+        stream.read_exact(obj_u8).unwrap();
+    }
+}
+
 
 pub fn export_root<U: SaveState, V: std::io::Write>
                   (obj: &U, mut stream: &mut V, version: u64)
