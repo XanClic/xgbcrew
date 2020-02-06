@@ -41,14 +41,16 @@ pub struct AddressSpace {
 
 
 extern "C" fn close_shm() {
+    let pid = std::process::id();
+
     unsafe {
-        libc::shm_unlink("/xgbcrew-hram\0".as_bytes().as_ptr()
+        libc::shm_unlink(format!("/xgbcrew-hram-{}\0", pid).as_bytes().as_ptr()
                              as *const libc::c_char);
 
-        libc::shm_unlink("/xgbcrew-vram\0".as_bytes().as_ptr()
+        libc::shm_unlink(format!("/xgbcrew-vram-{}\0", pid).as_bytes().as_ptr()
                              as *const libc::c_char);
 
-        libc::shm_unlink("/xgbcrew-wram\0".as_bytes().as_ptr()
+        libc::shm_unlink(format!("/xgbcrew-wram-{}\0", pid).as_bytes().as_ptr()
                              as *const libc::c_char);
     }
 }
@@ -234,8 +236,11 @@ impl AddressSpace {
     }
 
     fn create_shm(name: &str, size: usize) -> RawFd {
+        let pid = std::process::id();
+        let full_name = format!("/xgbcrew-{}-{}\0", name, pid);
+
         let shmfd = unsafe {
-            libc::shm_open(name.as_bytes().as_ptr() as *const libc::c_char,
+            libc::shm_open(full_name.as_bytes().as_ptr() as *const libc::c_char,
                            libc::O_RDWR | libc::O_CREAT,
                            0o755)
         };
@@ -255,7 +260,7 @@ impl AddressSpace {
 
     fn ensure_hram_shm(&mut self) {
         if self.hram_shm.is_none() {
-            self.hram_shm = Some(Self::create_shm("/xcgbcrew-hram\0", 0x1000));
+            self.hram_shm = Some(Self::create_shm("hram", 0x1000));
 
             /* Clear HRAM */
             let hram = Self::mmap(0, self.hram_shm.unwrap(), 0, 0x1000,
@@ -267,7 +272,7 @@ impl AddressSpace {
 
     fn ensure_vram_shm(&mut self) {
         if self.vram_shm.is_none() {
-            self.vram_shm = Some(Self::create_shm("/xcgbcrew-vram\0", 0x4000));
+            self.vram_shm = Some(Self::create_shm("vram", 0x4000));
 
             let vram_ptr = Self::mmap(0, self.vram_shm.unwrap(), 0, 0x4000,
                                       libc::PROT_READ | libc::PROT_WRITE,
@@ -281,7 +286,7 @@ impl AddressSpace {
 
     fn ensure_wram_shm(&mut self) {
         if self.wram_shm.is_none() {
-            self.wram_shm = Some(Self::create_shm("/xcgbcrew-wram\0", 0x8000));
+            self.wram_shm = Some(Self::create_shm("wram", 0x8000));
 
             /* Clear WRAM */
             let wram = Self::mmap(0, self.wram_shm.unwrap(), 0, 0x8000,
