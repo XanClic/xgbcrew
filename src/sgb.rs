@@ -24,25 +24,16 @@ pub struct SGBState {
     #[savestate(skip_if("version < 3"))]
     trn_dst: TransferDest,
 
-    #[savestate(import_fn("savestate::import_u8_slice"),
-                export_fn("savestate::export_u8_slice"))]
+    #[savestate(ref)]
     pal_data: [u8; 0x1000],
-    #[savestate(skip_if("version < 3"),
-                import_fn("savestate::import_u8_slice"),
-                export_fn("savestate::export_u8_slice"))]
+    #[savestate(skip_if("version < 3"), ref)]
     tiles: [u8; 0x2000],
-    #[savestate(skip_if("version < 3"),
-                import_fn("savestate::import_u8_slice"),
-                export_fn("savestate::export_u8_slice"))]
+    #[savestate(skip_if("version < 3"), ref)]
     border_map_palette: [u8; 0x1000],
-    #[savestate(skip_if("version < 3"),
-                import_fn("savestate::import_u8_slice"),
-                export_fn("savestate::export_u8_slice"))]
+    #[savestate(skip_if("version < 3"), ref)]
     attr_files: [u8; 0x1000],
 
-    #[savestate(skip_if("version < 6"),
-                import_fn("savestate::import_u32_slice"),
-                export_fn("savestate::export_u32_slice"),
+    #[savestate(skip_if("version < 6"), ref,
                 post_import("self.reload_border()"))]
     pub border_pixels: [u32; 256 * 224],
 

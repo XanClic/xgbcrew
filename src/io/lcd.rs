@@ -14,9 +14,7 @@ pub enum DisplaySGBMask {
 
 #[derive(SaveState)]
 pub struct DisplayState {
-    #[savestate(skip_if("version < 2"),
-                import_fn("savestate::import_u32_slice"),
-                export_fn("savestate::export_u32_slice"))]
+    #[savestate(skip_if("version < 2"), ref)]
     pub lcd_pixels: [u32; 160 * 144],
 
     enabled: bool,
@@ -43,14 +41,10 @@ pub struct DisplayState {
     #[savestate(skip_if("version < 1"))]
     obj_palette_mapping: [u8; 8],
 
-    #[savestate(skip_if("version < 1"),
-                import_fn("savestate::import_u8_slice"),
-                export_fn("savestate::export_u8_slice"))]
+    #[savestate(skip_if("version < 1"), ref)]
     pub sgb_pal_bi: [u8; 20 * 18],
 
-    #[savestate(skip_if("version < 1"),
-                import_fn("savestate::import_u8_slice"),
-                export_fn("savestate::export_u8_slice"))]
+    #[savestate(skip_if("version < 1"), ref)]
     pub for_sgb_buf: [u8; 160 * 144],
     #[savestate(skip_if("version < 1"))]
     pub fill_for_sgb_buf: bool,
@@ -59,9 +53,7 @@ pub struct DisplayState {
 
     #[savestate(skip_if("version < 2"))]
     sgb_mask: DisplaySGBMask,
-    #[savestate(skip_if("version < 2"),
-                import_fn("savestate::import_u32_slice"),
-                export_fn("savestate::export_u32_slice"))]
+    #[savestate(skip_if("version < 2"), ref)]
     sgb_freeze: [u32; 160 * 144],
 }
 
