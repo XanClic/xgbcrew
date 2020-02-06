@@ -31,6 +31,7 @@ struct Attr {
     neg_conditions: Vec<syn::Expr>,
     import_fn: Option<syn::Path>,
     export_fn: Option<syn::Path>,
+    as_ref: bool,
 }
 
 fn save_state_derive_struct(name: syn::Ident, sf: syn::FieldsNamed)
@@ -45,6 +46,7 @@ fn save_state_derive_struct(name: syn::Ident, sf: syn::FieldsNamed)
         let mut skip = false;
         let mut import_fn = None;
         let mut export_fn = None;
+        let mut as_ref = false;
 
         for a in &field.attrs {
             let attr_name = a.path.get_ident().as_ref().unwrap().to_string();
@@ -64,6 +66,8 @@ fn save_state_derive_struct(name: syn::Ident, sf: syn::FieldsNamed)
 
                                         if opt_name == "skip" {
                                             skip = true;
+                                        } else if opt_name == "ref" {
+                                            as_ref = true;
                                         } else {
                                             panic!("Unknown option {} for field {}",
                                                    opt_name, field_name);
@@ -122,6 +126,7 @@ fn save_state_derive_struct(name: syn::Ident, sf: syn::FieldsNamed)
             neg_conditions: neg_conditions,
             import_fn: import_fn,
             export_fn: export_fn,
+            as_ref: as_ref,
         });
     }
 
@@ -129,14 +134,27 @@ fn save_state_derive_struct(name: syn::Ident, sf: syn::FieldsNamed)
         let name = &attr.name;
         let ncond = &attr.neg_conditions;
 
-        let call =
-            if let Some(export_fn) = attr.export_fn.as_ref() {
+        let src =
+            if attr.as_ref {
                 quote! {
-                    #export_fn(&self.#name, stream, version);
+                    unsafe {
+                        self.#name.as_ref()
+                    }
                 }
             } else {
                 quote! {
-                    savestate::SaveState::export(&self.#name, stream, version);
+                    &self.#name
+                }
+            };
+
+        let call =
+            if let Some(export_fn) = attr.export_fn.as_ref() {
+                quote! {
+                    #export_fn(#src, stream, version);
+                }
+            } else {
+                quote! {
+                    savestate::SaveState::export(#src, stream, version);
                 }
             };
 
@@ -158,15 +176,27 @@ fn save_state_derive_struct(name: syn::Ident, sf: syn::FieldsNamed)
         let ncond = &attr.neg_conditions;
         let post = &attr.post_import;
 
-        let call =
-            if let Some(import_fn) = attr.import_fn.as_ref() {
+        let dst =
+            if attr.as_ref {
                 quote! {
-                    #import_fn(&mut self.#name, stream, version);
+                    unsafe {
+                        self.#name.as_mut()
+                    }
                 }
             } else {
                 quote! {
-                    savestate::SaveState::import(&mut self.#name, stream,
-                                                 version);
+                    &mut self.#name
+                }
+            };
+
+        let call =
+            if let Some(import_fn) = attr.import_fn.as_ref() {
+                quote! {
+                    #import_fn(#dst, stream, version);
+                }
+            } else {
+                quote! {
+                    savestate::SaveState::import(#dst, stream, version);
                 }
             };
 
