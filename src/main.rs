@@ -1,3 +1,5 @@
+#![feature(box_syntax)]
+
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate savestate_derive;
 
@@ -37,11 +39,11 @@ fn real_main() {
         None => format!("{}.sav", base_path),
     };
 
-    let mut addr_space = AddressSpace::new(&rom_path, &ram_path);
-    let sys_params = rom::load_rom(&mut addr_space);
+    let mut addr_space = box AddressSpace::new(&rom_path, &ram_path);
+    let sys_params = rom::load_rom(addr_space.as_mut());
 
-    let system_state = SystemState::new(addr_space, sys_params);
-    let mut system = System::new(system_state, UI::new(), base_path);
+    let system_state = box SystemState::new(addr_space, sys_params);
+    let mut system = box System::new(system_state, UI::new(), base_path);
 
     system.main_loop();
 }

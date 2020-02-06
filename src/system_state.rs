@@ -95,7 +95,8 @@ pub struct SystemParams {
 
 #[derive(SaveState)]
 pub struct System {
-    pub sys_state: SystemState,
+    #[savestate(ref)]
+    pub sys_state: Box<SystemState>,
     pub cpu: CPU,
 
     #[savestate(skip)]
@@ -110,7 +111,8 @@ pub struct System {
 
 #[derive(SaveState)]
 pub struct SystemState {
-    pub addr_space: AddressSpace,
+    #[savestate(ref)]
+    pub addr_space: Box<AddressSpace>,
 
     #[savestate(skip_if("version >= 1"))]
     pub cgb: bool,
@@ -125,18 +127,19 @@ pub struct SystemState {
     #[savestate(skip)]
     sound_postprocess: bool,
 
-    pub display: DisplayState,
+    #[savestate(ref)]
+    pub display: Box<DisplayState>,
     pub keypad: KeypadState,
     pub sound: SoundState,
     pub timer: TimerState,
 
-    #[savestate(skip_if("version < 1"))]
-    pub sgb_state: SGBState,
+    #[savestate(skip_if("version < 1"), ref)]
+    pub sgb_state: Box<SGBState>,
 }
 
 
 impl System {
-    pub fn new(mut sys_state: SystemState, mut ui: UI, base_path: String)
+    pub fn new(mut sys_state: Box<SystemState>, mut ui: UI, base_path: String)
         -> Self
     {
         let cpu = CPU::new(sys_state.cgb, sys_state.sgb);
@@ -281,7 +284,7 @@ impl System {
 }
 
 impl SystemState {
-    pub fn new(addr_space: AddressSpace, params: SystemParams) -> Self {
+    pub fn new(addr_space: Box<AddressSpace>, params: SystemParams) -> Self {
         let mut state = Self {
             addr_space: addr_space,
 
@@ -294,12 +297,12 @@ impl SystemState {
 
             sound_postprocess: false,
 
-            display: DisplayState::new(),
+            display: box DisplayState::new(),
             keypad: KeypadState::new(),
             sound: SoundState::new(),
             timer: TimerState::new(),
 
-            sgb_state: SGBState::new(),
+            sgb_state: box SGBState::new(),
         };
 
         DisplayState::init_system_state(&mut state);
