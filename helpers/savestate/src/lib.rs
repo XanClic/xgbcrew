@@ -65,35 +65,3 @@ pub fn import_root<U: SaveState, V: std::io::Read + std::io::Seek>
 
     SaveState::import(obj, stream, version);
 }
-
-
-pub fn import_u8_slice<T: std::io::Read>(obj: &mut [u8], stream: &mut T,
-                                         _version: u64)
-{
-    stream.read_exact(obj).unwrap();
-}
-
-pub fn export_u8_slice<T: std::io::Write>(obj: &[u8], stream: &mut T,
-                                          _version: u64)
-{
-    stream.write_all(obj).unwrap();
-}
-
-pub fn import_u32_slice<T: std::io::Read>(obj: &mut [u32], stream: &mut T,
-                                          _version: u64)
-{
-    let obj_u8 = unsafe {
-        std::slice::from_raw_parts_mut(obj.as_mut_ptr() as *mut u8,
-                                       obj.len() * 4)
-    };
-    stream.read_exact(obj_u8).unwrap();
-}
-
-pub fn export_u32_slice<T: std::io::Write>(obj: &[u32], stream: &mut T,
-                                           _version: u64)
-{
-    let obj_u8 = unsafe {
-        std::slice::from_raw_parts(obj.as_ptr() as *const u8, obj.len() * 4)
-    };
-    stream.write_all(obj_u8).unwrap();
-}
