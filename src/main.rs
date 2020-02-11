@@ -42,8 +42,10 @@ fn main() {
     let mut addr_space = box AddressSpace::new(&rom_path, &ram_path);
     let sys_params = rom::load_rom(addr_space.as_mut());
 
+    let ui = UI::new(&sys_params.cartridge_name);
+
     let system_state = box SystemState::new(addr_space, sys_params);
-    let mut system = box System::new(system_state, UI::new(), base_path);
+    let mut system = box System::new(system_state, ui, base_path);
 
     system.main_loop();
 }

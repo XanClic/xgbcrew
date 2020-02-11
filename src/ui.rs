@@ -11,7 +11,7 @@ use sdl::SDLUI;
 use sc::SC;
 
 
-#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum UIScancode {
     P,
     X,
@@ -62,23 +62,33 @@ pub enum UIScancode {
     CAction,
 }
 
-#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy)]
 enum UIInputEdge {
     Down,
     Up,
 }
 
-#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+impl Default for UIInputEdge {
+    fn default() -> Self {
+        UIInputEdge::Down
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy)]
 struct UIInput {
     scancode: UIScancode,
 
+    #[serde(default)]
     shift: bool,
+    #[serde(default)]
     alt: bool,
+    #[serde(default)]
     control: bool,
+    #[serde(default)]
     edge: UIInputEdge,
 }
 
-#[derive(Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub enum UIAction {
     Key(KeypadKey, bool),
 
@@ -92,6 +102,14 @@ pub enum UIAction {
     TogglePause,
 
     Quit,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct UIMap {
+    #[serde(flatten)]
+    input: UIInput,
+
+    action: UIAction,
 }
 
 pub enum UIEvent {
@@ -151,7 +169,7 @@ macro_rules! binding {
 }
 
 impl UI {
-    pub fn new() -> Self {
+    pub fn new(cart_name: &String) -> Self {
         let mut frontend = SDLUI::new();
 
         let sc = match SC::new() {
@@ -162,10 +180,6 @@ impl UI {
                 None
             },
         };
-
-        let mut im = HashMap::new();
-        Self::default_keyboard_mapping(&mut im);
-        Self::default_controller_mapping(&mut im);
 
         Self {
             frontend: frontend,
@@ -180,8 +194,54 @@ impl UI {
             fullscreen: false,
             paused: false,
 
-            input_map: im,
+            input_map: Self::load_input_mapping(cart_name),
         }
+    }
+
+    fn load_input_mapping(cart_name: &String) -> HashMap::<UIInput, UIAction> {
+        let mut opts = std::fs::OpenOptions::new();
+        opts.read(true);
+
+        let map_file =
+            match opts.open("input-map.json") {
+                Ok(f) => f,
+                Err(e) => {
+                    eprintln!("Failed to load input-map.json: {}", e);
+                    return Self::default_input_mapping();
+                }
+            };
+
+        type InputMaps = HashMap::<String, Vec::<UIMap>>;
+        let mut cfg: InputMaps = serde_json::from_reader(map_file).unwrap();
+
+        if let Some(map) = cfg.remove(cart_name) {
+            Self::translate_input_mapping(map)
+        } else if let Some(map) = cfg.remove("default") {
+            Self::translate_input_mapping(map)
+        } else {
+            Self::default_input_mapping()
+        }
+    }
+
+    fn translate_input_mapping(json_map: Vec::<UIMap>)
+        -> HashMap::<UIInput, UIAction>
+    {
+        let mut im = HashMap::new();
+
+        for uim in json_map {
+            im.insert(uim.input, uim.action);
+        }
+
+        im
+    }
+
+    fn default_input_mapping() -> HashMap::<UIInput, UIAction> {
+        let mut im = HashMap::new();
+
+        Self::default_keyboard_mapping(&mut im);
+        Self::default_controller_mapping(&mut im);
+
+        im
     }
 
     fn default_keyboard_mapping(im: &mut HashMap::<UIInput, UIAction>) {

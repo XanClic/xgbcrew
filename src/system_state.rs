@@ -91,6 +91,7 @@ pub enum IOReg {
 pub struct SystemParams {
     pub cgb: bool,
     pub sgb: bool,
+    pub cartridge_name: String,
 }
 
 #[derive(SaveState)]

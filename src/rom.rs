@@ -534,10 +534,9 @@ pub fn load_rom(addr_space: &mut AddressSpace) -> SystemParams {
 
     let gbc_mode = rom_data_area.cgb_mode & 0x80 != 0;
     let sgb_mode = rom_data_area.sgb_mode == 0x03;
+    let cart_name = String::from_utf8_lossy(&rom_data_area.title).to_string();
 
-    print!("{}, ",
-           String::from_utf8_lossy(&rom_data_area.title).replace("\0",
-                                                                 "."));
+    print!("{}, ", cart_name.replace("\0", "."));
     if gbc_mode && sgb_mode {
         print!("GBC+SGB");
     } else if gbc_mode {
@@ -630,5 +629,6 @@ pub fn load_rom(addr_space: &mut AddressSpace) -> SystemParams {
     SystemParams {
         cgb: gbc_mode,
         sgb: sgb_mode,
+        cartridge_name: cart_name,
     }
 }
