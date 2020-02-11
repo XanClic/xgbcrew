@@ -110,6 +110,9 @@ enum SCButton {
     VirtRight = 0x17,
     VirtUp = 0x18,
     VirtDown = 0x19,
+
+    VirtBottomRShoulderSoft = 0x1a,
+    VirtBottomLShoulderSoft = 0x1b,
 }
 
 
@@ -259,6 +262,8 @@ impl SCThread {
         binding!(is, bm, TopRShoulder, UIScancode::CRBump);
         binding!(is, bm, BottomLShoulder, UIScancode::CLTrigger);
         binding!(is, bm, BottomRShoulder, UIScancode::CRTrigger);
+        binding!(is, bm, VirtBottomLShoulderSoft, UIScancode::CLSoftTrigger);
+        binding!(is, bm, VirtBottomRShoulderSoft, UIScancode::CRSoftTrigger);
         binding!(is, bm, LGrip, UIScancode::CLGrip);
         binding!(is, bm, RGrip, UIScancode::CRGrip);
         binding!(is, bm, Previous, UIScancode::CPrevious);
@@ -380,6 +385,15 @@ impl SCInputData {
         }
         if self.lpad_y < -16384 {
             self.full_buttons |= 1u32 << (SCButton::VirtDown as usize);
+        }
+
+        if self.lshoulder >= 16 {
+            self.full_buttons |= 1u32 << (SCButton::VirtBottomLShoulderSoft
+                                          as usize);
+        }
+        if self.rshoulder >= 16 {
+            self.full_buttons |= 1u32 << (SCButton::VirtBottomRShoulderSoft
+                                          as usize);
         }
     }
 

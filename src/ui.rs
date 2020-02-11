@@ -55,6 +55,8 @@ pub enum UIScancode {
     CRBump,
     CLTrigger,
     CRTrigger,
+    CLSoftTrigger,
+    CRSoftTrigger,
     CLGrip,
     CRGrip,
     CPrevious,
