@@ -1,6 +1,7 @@
 pub mod sc;
 pub mod sdl;
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 
@@ -44,19 +45,40 @@ pub enum UIScancode {
 
     CA,
     CB,
-    CStart,
-    CSelect,
+    CX,
+    CY,
     CLeft,
     CRight,
     CUp,
     CDown,
+    CLBump,
+    CRBump,
+    CLTrigger,
+    CRTrigger,
+    CLGrip,
+    CRGrip,
     CPrevious,
     CNext,
-
-    CLoad(usize),
-    CSave(usize),
+    CAction,
 }
 
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+enum UIInputEdge {
+    Down,
+    Up,
+}
+
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+struct UIInput {
+    scancode: UIScancode,
+
+    shift: bool,
+    alt: bool,
+    control: bool,
+    edge: UIInputEdge,
+}
+
+#[derive(Clone)]
 pub enum UIAction {
     Key(KeypadKey, bool),
 
@@ -100,8 +122,33 @@ pub struct UI {
     keyboard_state: KeyboardState,
     fullscreen: bool,
     paused: bool,
+
+    input_map: HashMap<UIInput, UIAction>,
 }
 
+
+macro_rules! binding {
+    ($im:ident, $sc:ident, $s:ident, $a:ident, $c:ident, $e:ident,
+     $act:expr) =>
+    {
+        $im.insert(UIInput { scancode: UIScancode::$sc,
+                             shift: $s, alt: $a, control: $c,
+                             edge: UIInputEdge::$e },
+                   $act);
+    };
+
+    ($im:ident, $sc:ident, $s:ident, $a:ident, $c:ident, $kpk:ident) => {
+        $im.insert(UIInput { scancode: UIScancode::$sc,
+                             shift: $s, alt: $a, control: $c,
+                             edge: UIInputEdge::Down },
+                   UIAction::Key(KeypadKey::$kpk, true));
+
+        $im.insert(UIInput { scancode: UIScancode::$sc,
+                             shift: $s, alt: $a, control: $c,
+                             edge: UIInputEdge::Up },
+                   UIAction::Key(KeypadKey::$kpk, false));
+    };
+}
 
 impl UI {
     pub fn new() -> Self {
@@ -116,6 +163,10 @@ impl UI {
             },
         };
 
+        let mut im = HashMap::new();
+        Self::default_keyboard_mapping(&mut im);
+        Self::default_controller_mapping(&mut im);
+
         Self {
             frontend: frontend,
             sc: sc,
@@ -128,56 +179,85 @@ impl UI {
 
             fullscreen: false,
             paused: false,
+
+            input_map: im,
         }
     }
 
-    fn fkey(&mut self, index: usize) -> Option<UIAction> {
-        if !self.keyboard_state.alt && !self.keyboard_state.control {
-            if self.keyboard_state.shift {
-                Some(UIAction::SaveState(index))
-            } else {
-                Some(UIAction::LoadState(index))
-            }
-        } else {
-            None
-        }
+    fn default_keyboard_mapping(im: &mut HashMap::<UIInput, UIAction>) {
+        binding!(im, X, false, false, false, A);
+        binding!(im, Z, false, false, false, B);
+        binding!(im, Return, false, false, false, Start);
+        binding!(im, Backspace, false, false, false, Select);
+
+        binding!(im, Left, false, false, false, Left);
+        binding!(im, Right, false, false, false, Right);
+        binding!(im, Up, false, false, false, Up);
+        binding!(im, Down, false, false, false, Down);
+
+        binding!(im, Space, false, false, false, Down, UIAction::Skip(true));
+        binding!(im, Space, false, false, false, Up, UIAction::Skip(false));
+
+        binding!(im, P, false, false, false, Down, UIAction::TogglePause);
+
+        binding!(im, F9, false, false, false, Down,
+                 UIAction::ToggleAudioPostprocessing);
+
+        binding!(im, F11, false, false, false, Down,
+                 UIAction::ToggleFullscreen);
+
+        binding!(im, F1, false, false, false, Down, UIAction::LoadState(0));
+        binding!(im, F2, false, false, false, Down, UIAction::LoadState(1));
+        binding!(im, F3, false, false, false, Down, UIAction::LoadState(2));
+        binding!(im, F4, false, false, false, Down, UIAction::LoadState(3));
+        binding!(im, F5, false, false, false, Down, UIAction::LoadState(4));
+        binding!(im, F6, false, false, false, Down, UIAction::LoadState(5));
+        binding!(im, F7, false, false, false, Down, UIAction::LoadState(6));
+        binding!(im, F8, false, false, false, Down, UIAction::LoadState(7));
+
+        binding!(im, F1, true, false, false, Down, UIAction::SaveState(0));
+        binding!(im, F2, true, false, false, Down, UIAction::SaveState(1));
+        binding!(im, F3, true, false, false, Down, UIAction::SaveState(2));
+        binding!(im, F4, true, false, false, Down, UIAction::SaveState(3));
+        binding!(im, F5, true, false, false, Down, UIAction::SaveState(4));
+        binding!(im, F6, true, false, false, Down, UIAction::SaveState(5));
+        binding!(im, F7, true, false, false, Down, UIAction::SaveState(6));
+        binding!(im, F8, true, false, false, Down, UIAction::SaveState(7));
+    }
+
+    fn default_controller_mapping(im: &mut HashMap::<UIInput, UIAction>) {
+        binding!(im, CB, false, false, false, A);
+        binding!(im, CA, false, false, false, B);
+        binding!(im, CY, false, false, false, Start);
+        binding!(im, CX, false, false, false, Select);
+
+        binding!(im, CLeft, false, false, false, Left);
+        binding!(im, CRight, false, false, false, Right);
+        binding!(im, CUp, false, false, false, Up);
+        binding!(im, CDown, false, false, false, Down);
+
+        binding!(im, CNext, false, false, false, Down, UIAction::Skip(true));
+        binding!(im, CNext, false, false, false, Up, UIAction::Skip(false));
+
+        binding!(im, CPrevious, false, false, false, Down,
+                 UIAction::TogglePause);
+
+        binding!(im, CAction, false, false, false, Down,
+                 UIAction::ToggleFullscreen);
+
+        binding!(im, CLTrigger, false, false, false, Down,
+                 UIAction::LoadState(0));
+        binding!(im, CRTrigger, false, false, false, Down,
+                 UIAction::LoadState(1));
+
+        binding!(im, CLGrip, false, false, false, Down, UIAction::SaveState(0));
+        binding!(im, CRGrip, false, false, false, Down, UIAction::SaveState(1));
     }
 
     pub fn translate_event(&mut self, event: UIEvent) -> Option<UIAction> {
-        if let Some(action) = match event {
+        match event {
             UIEvent::Quit => Some(UIAction::Quit),
 
-            UIEvent::Key { key, down: true } => {
-                match key {
-                    UIScancode::F1 => self.fkey(0),
-                    UIScancode::F2 => self.fkey(1),
-                    UIScancode::F3 => self.fkey(2),
-                    UIScancode::F4 => self.fkey(3),
-                    UIScancode::F5 => self.fkey(4),
-                    UIScancode::F6 => self.fkey(5),
-                    UIScancode::F7 => self.fkey(6),
-                    UIScancode::F8 => self.fkey(7),
-
-                    UIScancode::F9 => Some(UIAction::ToggleAudioPostprocessing),
-                    UIScancode::F11 => Some(UIAction::ToggleFullscreen),
-
-                    UIScancode::P | UIScancode::CPrevious =>
-                        Some(UIAction::TogglePause),
-
-                    UIScancode::CLoad(x) => Some(UIAction::LoadState(x)),
-                    UIScancode::CSave(x) => Some(UIAction::SaveState(x)),
-
-                    _ => None,
-                }
-            },
-
-            _ => None,
-        }
-        {
-            return Some(action);
-        }
-
-        match event {
             UIEvent::Key { key, down } => {
                 match key {
                     UIScancode::Shift => {
@@ -195,38 +275,28 @@ impl UI {
                         None
                     },
 
-                    UIScancode::Space | UIScancode::CNext =>
-                        Some(UIAction::Skip(down)),
+                    _ => {
+                        let edge =
+                            if down {
+                                UIInputEdge::Down
+                            } else {
+                                UIInputEdge::Up
+                            };
 
-                    UIScancode::X | UIScancode::CA =>
-                        Some(UIAction::Key(KeypadKey::A, down)),
+                        let inp = UIInput {
+                            scancode: key,
 
-                    UIScancode::Z | UIScancode::CB =>
-                        Some(UIAction::Key(KeypadKey::B, down)),
+                            shift: self.keyboard_state.shift,
+                            alt: self.keyboard_state.alt,
+                            control: self.keyboard_state.control,
 
-                    UIScancode::Return | UIScancode::CStart =>
-                        Some(UIAction::Key(KeypadKey::Start, down)),
+                            edge: edge,
+                        };
 
-                    UIScancode::Backspace | UIScancode::CSelect =>
-                        Some(UIAction::Key(KeypadKey::Select, down)),
-
-                    UIScancode::Left | UIScancode::CLeft =>
-                        Some(UIAction::Key(KeypadKey::Left, down)),
-
-                    UIScancode::Right | UIScancode::CRight =>
-                        Some(UIAction::Key(KeypadKey::Right, down)),
-
-                    UIScancode::Up | UIScancode::CUp =>
-                        Some(UIAction::Key(KeypadKey::Up, down)),
-
-                    UIScancode::Down | UIScancode::CDown =>
-                        Some(UIAction::Key(KeypadKey::Down, down)),
-
-                    _ => None,
+                        self.input_map.get(&inp).cloned()
+                    },
                 }
             },
-
-            _ => None,
         }
     }
 

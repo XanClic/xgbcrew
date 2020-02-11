@@ -247,20 +247,23 @@ impl SCThread {
         let mut is = HashMap::new();
         let mut bm = HashMap::new();
 
-        binding!(is, bm, B, UIScancode::CA);
-        binding!(is, bm, A, UIScancode::CB);
-        binding!(is, bm, Y, UIScancode::CStart);
-        binding!(is, bm, X, UIScancode::CSelect);
+        binding!(is, bm, A, UIScancode::CA);
+        binding!(is, bm, B, UIScancode::CB);
+        binding!(is, bm, X, UIScancode::CX);
+        binding!(is, bm, Y, UIScancode::CY);
         binding!(is, bm, VirtLeft, UIScancode::CLeft);
         binding!(is, bm, VirtRight, UIScancode::CRight);
         binding!(is, bm, VirtUp, UIScancode::CUp);
         binding!(is, bm, VirtDown, UIScancode::CDown);
+        binding!(is, bm, TopLShoulder, UIScancode::CLBump);
+        binding!(is, bm, TopRShoulder, UIScancode::CRBump);
+        binding!(is, bm, BottomLShoulder, UIScancode::CLTrigger);
+        binding!(is, bm, BottomRShoulder, UIScancode::CRTrigger);
+        binding!(is, bm, LGrip, UIScancode::CLGrip);
+        binding!(is, bm, RGrip, UIScancode::CRGrip);
         binding!(is, bm, Previous, UIScancode::CPrevious);
         binding!(is, bm, Next, UIScancode::CNext);
-        binding!(is, bm, BottomLShoulder, UIScancode::CLoad(0));
-        binding!(is, bm, BottomRShoulder, UIScancode::CLoad(1));
-        binding!(is, bm, LGrip, UIScancode::CSave(0));
-        binding!(is, bm, RGrip, UIScancode::CSave(1));
+        binding!(is, bm, Action, UIScancode::CAction);
 
         let obj = Self {
             dev: dev,

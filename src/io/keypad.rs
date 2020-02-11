@@ -34,6 +34,7 @@ pub struct KeypadState {
     ncp: NextControllerProcedure,
 }
 
+#[derive(Clone)]
 pub enum KeypadKey {
     A,
     B,
