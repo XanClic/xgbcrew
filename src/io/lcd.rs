@@ -419,6 +419,25 @@ fn draw_wnd_line(sys_state: &mut SystemState,
 }
 
 
+fn oam_search(objs: &mut Vec::<u32>, oam: *const u32,
+              line: u32, obj_height: u32, cgb: bool)
+{
+    for i in 0..40 {
+        let obj = unsafe { *oam.offset(i) };
+        let by = (obj & 0xff).wrapping_sub(16);
+
+        if by <= line && by.wrapping_add(obj_height) > line {
+            objs.push(obj);
+        }
+    }
+
+    if !cgb {
+        objs.sort_by_key(|x| (x >> 8) & 0xffu32);
+    }
+
+    objs.truncate(10);
+}
+
 fn draw_obj_line(sys_state: &mut SystemState, screen_line: u8,
                  bg_prio: &[u8; 160])
 {
@@ -426,34 +445,24 @@ fn draw_obj_line(sys_state: &mut SystemState, screen_line: u8,
     let sofs = screen_line as usize * 160;
     let eofs = sofs + 160;
     let pixels = &mut d.lcd_pixels[sofs..eofs];
-    let oam = sys_state.addr_space.raw_ptr(0xfe00);
+    let oam = sys_state.addr_space.raw_ptr(0xfe00) as *const u32;
     let full_vram = &sys_state.addr_space.full_vram;
 
-    let mut count = 0;
+    let mut objs = Vec::<u32>::with_capacity(40);
 
-    /* TODO: Priority should be given to objects at lower X */
-    for sprite in (0..40).rev() {
-        let oam_bi = sprite * 4;
-        let by = unsafe { *oam.offset(oam_bi + 0) } as isize - 16;
-        let bx = unsafe { *oam.offset(oam_bi + 1) } as isize - 8;
+    oam_search(&mut objs, oam, screen_line as u32, d.obj_height as u32,
+               sys_state.cgb);
 
-        if by > screen_line as isize ||
-           by + d.obj_height as isize <= screen_line as isize
-        {
-            continue;
-        }
-
-        count += 1;
-        if count > 10 {
-            break;
-        }
+    for obj in objs.iter().rev() {
+        let bx = ((obj >> 8) & 0xffu32) as i32 - 8;
+        let by = (obj & 0xffu32) as i32 - 16;
 
         if bx <= -8 || bx >= 160 {
             continue;
         }
 
-        let mut ofs = unsafe { *oam.offset(oam_bi + 2) } as usize * 16;
-        let flags = unsafe { *oam.offset(oam_bi + 3) };
+        let mut ofs = ((obj >> 16) & 0xffu32) as usize * 16;
+        let flags = (obj >> 24) as u8;
 
         if d.obj_height == 16 {
             ofs &= !0x1f;
@@ -469,7 +478,7 @@ fn draw_obj_line(sys_state: &mut SystemState, screen_line: u8,
             };
 
         let data = fetch_tile_obj_data(full_vram, data_ofs + ofs, flags,
-                                       (screen_line as isize - by) as usize,
+                                       (screen_line as i32 - by) as usize,
                                        d.obj_height);
 
         for rx in 0..8 {
