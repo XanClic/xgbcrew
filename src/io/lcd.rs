@@ -420,13 +420,13 @@ fn draw_wnd_line(sys_state: &mut SystemState,
 
 
 fn oam_search(objs: &mut Vec::<u32>, oam: *const u32,
-              line: u32, obj_height: u32, cgb: bool)
+              line: i32, obj_height: i32, cgb: bool)
 {
     for i in 0..40 {
         let obj = unsafe { *oam.offset(i) };
-        let by = (obj & 0xff).wrapping_sub(16);
+        let by = (obj & 0xff) as i32 - 16;
 
-        if by <= line && by.wrapping_add(obj_height) > line {
+        if by <= line && by + obj_height > line {
             objs.push(obj);
         }
     }
@@ -450,7 +450,7 @@ fn draw_obj_line(sys_state: &mut SystemState, screen_line: u8,
 
     let mut objs = Vec::<u32>::with_capacity(40);
 
-    oam_search(&mut objs, oam, screen_line as u32, d.obj_height as u32,
+    oam_search(&mut objs, oam, screen_line as i32, d.obj_height as i32,
                sys_state.cgb);
 
     for obj in objs.iter().rev() {
