@@ -151,7 +151,20 @@ impl SC {
         let mut init_0 = [0u8; 65];
         init_0[1] = 0x83;
 
-        dev.send_feature_report(&init_0).unwrap();
+        let mut success = false;
+        for i in 0..5 {
+            if dev.send_feature_report(&init_0).is_ok() {
+                success = true;
+                break;
+            }
+
+            if i < 4 {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+        }
+        if !success {
+            return Err(String::from("Failed to initialize SC"));
+        }
 
         let mut received = [0u8; 65];
         dev.get_feature_report(&mut received).unwrap();
