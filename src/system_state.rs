@@ -3,13 +3,14 @@ use crate::cpu::CPU;
 use crate::io;
 use crate::io::keypad::KeypadState;
 use crate::io::lcd::DisplayState;
+use crate::io::serial::{SerialConnParam, SerialState};
 use crate::io::sound::SoundState;
 use crate::io::timer::TimerState;
 use crate::sgb::SGBState;
 use crate::ui::{UI, UIAction, UIEvent};
 
 
-const SAVE_STATE_VERSION: u64 = 7;
+const SAVE_STATE_VERSION: u64 = 8;
 
 #[allow(dead_code)]
 pub enum IOReg {
@@ -92,6 +93,7 @@ pub struct SystemParams {
     pub cgb: bool,
     pub sgb: bool,
     pub cartridge_name: String,
+    pub serial_conn_param: SerialConnParam,
 }
 
 #[derive(SaveState)]
@@ -133,6 +135,8 @@ pub struct SystemState {
     pub keypad: KeypadState,
     pub sound: SoundState,
     pub timer: TimerState,
+    #[savestate(skip)]
+    pub serial: Option<SerialState>,
 
     #[savestate(skip_if("version < 1"), ref)]
     pub sgb_state: Box<SGBState>,
@@ -275,17 +279,28 @@ impl System {
     pub fn main_loop(&mut self) {
         loop {
             self.exec();
+
+            if let Some(serial) = self.sys_state.serial.as_mut() {
+                serial.check_remote(&mut self.sys_state.addr_space);
+            }
+
             if self.sys_state.vblanked {
                 self.sys_state.vblanked = false;
                 self.ui.refresh_lcd(&self.sys_state);
                 self.handle_events();
+
+                if let Some(serial) = self.sys_state.serial.as_mut() {
+                    serial.vblank_check();
+                }
             }
         }
     }
 }
 
 impl SystemState {
-    pub fn new(addr_space: Box<AddressSpace>, params: SystemParams) -> Self {
+    pub fn new(addr_space: Box<AddressSpace>, params: SystemParams, ui: &mut UI)
+        -> Self
+    {
         let mut state = Self {
             addr_space: addr_space,
 
@@ -302,6 +317,7 @@ impl SystemState {
             keypad: KeypadState::new(),
             sound: SoundState::new(),
             timer: TimerState::new(),
+            serial: SerialState::new(ui, &params.serial_conn_param),
 
             sgb_state: box SGBState::new(),
         };
@@ -324,6 +340,10 @@ impl SystemState {
         io::lcd::add_cycles(self, dcycles);
         self.sound.add_cycles(&mut self.addr_space, dcycles, self.realtime);
         io::timer::add_cycles(self, count);
+
+        if let Some(serial) = self.serial.as_mut() {
+            serial.add_cycles(&mut self.addr_space, dcycles);
+        }
     }
 
     fn toggle_sound_postprocess(&mut self) {

@@ -2,6 +2,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::time::SystemTime;
 
 use crate::address_space::AddressSpace;
+use crate::io::serial::SerialConnParam;
 use crate::system_state::SystemParams;
 
 
@@ -630,5 +631,6 @@ pub fn load_rom(addr_space: &mut AddressSpace) -> SystemParams {
         cgb: gbc_mode,
         sgb: sgb_mode,
         cartridge_name: cart_name,
+        serial_conn_param: SerialConnParam::default(),
     }
 }
