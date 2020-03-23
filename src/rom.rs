@@ -398,15 +398,17 @@ impl Cartridge {
                 let raw_rtc_data = bincode::serialize(&rtc).unwrap();
                 addr_space.extram_file.write_all(&raw_rtc_data).unwrap();
 
-                /* So we can do a memset */
-                addr_space.extram_rw = true;
-                addr_space.remap_extram();
+                if addr_space.extram_bank == Some(-1isize as usize) {
+                    /* So we can do a memset */
+                    addr_space.extram_rw = true;
+                    addr_space.remap_extram();
 
-                addr_space.set_virtual_extram(val);
+                    addr_space.set_virtual_extram(val);
 
-                /* memset is done */
-                addr_space.extram_rw = false;
-                addr_space.remap_extram();
+                    /* memset is done */
+                    addr_space.extram_rw = false;
+                    addr_space.remap_extram();
+                }
             },
 
             _ => unreachable!(),
