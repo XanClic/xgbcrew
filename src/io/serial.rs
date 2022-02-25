@@ -1,4 +1,5 @@
 use std::io::{Read, Write};
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use crate::address_space::AddressSpace;
 use crate::io::IOSpace;
@@ -13,6 +14,7 @@ const LINK_PORT: u16 = 0x9bc1u16; /* xgbc link */
 pub enum SerialConnParam {
     Disabled,
     LocalAuto,
+    LocalSHM(usize),
     Client(String),
     Server(String),
 }
@@ -24,9 +26,18 @@ impl SerialConnParam {
 }
 
 
+struct SerialSHM {
+    remote_sb: &'static AtomicU8,
+    remote_sc: &'static AtomicU8,
+    remote_if: &'static AtomicU8,
+}
+
 pub struct SerialState {
     con: Option<std::net::TcpStream>,
     server: Option<std::net::TcpListener>,
+
+    /* FIXME: Atomics */
+    shm: Option<SerialSHM>,
 
     cycles_rem: Option<u32>,
 }
@@ -37,6 +48,49 @@ impl SerialState {
         let (addr, create_server, create_client) =
             match param {
                 SerialConnParam::Disabled => return None,
+
+                SerialConnParam::LocalSHM(pid) => {
+                    let shm_fd = AddressSpace::open_shm("hram", *pid);
+
+                    let shm = AddressSpace::mmap(0, shm_fd, 0, 0x1000,
+                                                 libc::PROT_READ |
+                                                 libc::PROT_WRITE,
+                                                 libc::MAP_SHARED, false);
+
+                    let remote_sb = unsafe {
+                        std::mem::transmute::<*mut u8,
+                                              &'static mut AtomicU8>(
+                            (shm as *mut u8).offset(0xf01)
+                        )
+                    };
+
+                    let remote_sc = unsafe {
+                        std::mem::transmute::<*mut u8,
+                                              &'static mut AtomicU8>(
+                            (shm as *mut u8).offset(0xf02)
+                        )
+                    };
+
+                    let remote_if = unsafe {
+                        std::mem::transmute::<*mut u8,
+                                              &'static mut AtomicU8>(
+                            (shm as *mut u8).offset(0xf0f)
+                        )
+                    };
+
+                    return Some(SerialState {
+                        con: None,
+                        server: None,
+
+                        shm: Some(SerialSHM {
+                            remote_sb: remote_sb,
+                            remote_sc: remote_sc,
+                            remote_if: remote_if,
+                        }),
+
+                        cycles_rem: None,
+                    });
+                },
 
                 SerialConnParam::LocalAuto =>
                     (format!("localhost:{}", LINK_PORT), true, true),
@@ -64,7 +118,8 @@ impl SerialState {
         }
         if con.is_none() && server.is_none() {
             match param {
-                SerialConnParam::Disabled => unreachable!(),
+                SerialConnParam::Disabled | SerialConnParam::LocalSHM(_) =>
+                    unreachable!(),
 
                 SerialConnParam::LocalAuto | SerialConnParam::Server(_) =>
                     ui.osd_message(String::from("Failed to set up link server")),
@@ -79,6 +134,8 @@ impl SerialState {
         Some(SerialState {
             con: con,
             server: server,
+
+            shm: None,
 
             cycles_rem: None,
         })
@@ -141,6 +198,33 @@ impl SerialState {
                 /* TODO: Print this */
                 self.conn_down();
             }
+        } else if let Some(shm) = self.shm.as_mut() {
+            let sc = addr_space.io_get_reg(IOReg::SC);
+
+            if sc & 0x81 == 0x81 {
+                let sb = addr_space.io_get_reg(IOReg::SB);
+
+                let rsc = shm.remote_sc.load(Ordering::Relaxed);
+                if rsc & 0x81 == 0x80 {
+                    let rsb = shm.remote_sb.swap(sb, Ordering::Relaxed);
+                    shm.remote_sc.store(rsc & 0x02, Ordering::Release);
+
+                    shm.remote_if.fetch_or(IRQ::Serial as u8,
+                                           Ordering::AcqRel);
+
+                    addr_space.io_set_reg(IOReg::SB, rsb);
+
+                    println!("In: {:02x}; out: {:02x}", rsb, sb);
+                } else {
+                    addr_space.io_set_reg(IOReg::SB, 0);
+                }
+
+                addr_space.io_set_reg(IOReg::SC, sc & !0x80);
+
+                let iflag = addr_space.io_get_reg(IOReg::IF);
+                addr_space.io_set_reg(IOReg::IF,
+                                      iflag | (IRQ::Serial as u8));
+            }
         }
     }
 
@@ -191,22 +275,24 @@ pub fn serial_write(sys_state: &mut SystemState, addr: u16, mut val: u8)
                         /* Drain remote */
                         while con.read(&mut recv_data).unwrap_or(0) == 1 {
                         }
+                    }
 
-                        if val & 0x01 != 0 {
+                    if val & 0x01 != 0 {
+                        if let Some(con) = serial.con.as_mut() {
                             let send_data = [sb];
                             if con.write_all(&send_data).is_err() {
                                 serial.conn_down();
                             }
-
-                            /* Takes 16 cycles of the shift clock
-                             * (8 before start, then 8 to transfer) */
-                            serial.cycles_rem = Some(
-                                if sys_state.cgb && (val & 0x02 != 0) {
-                                    16 * 16
-                                } else {
-                                    16 * 512
-                                } - 1);
                         }
+
+                        /* Takes 16 cycles of the shift clock
+                         * (8 before start, then 8 to transfer) */
+                        serial.cycles_rem = Some(
+                            if sys_state.cgb && (val & 0x02 != 0) {
+                                16 * 16
+                            } else {
+                                16 * 512
+                            } - 1);
                     }
                 }
             }

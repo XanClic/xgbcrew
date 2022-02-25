@@ -43,6 +43,9 @@ fn main() {
                    cap.get(3).unwrap().as_str() == "local-auto"
                 {
                     scp = SerialConnParam::LocalAuto;
+                } else if cap[3].starts_with("local-shm:") {
+                    let pid = cap[3].get(10..).unwrap();
+                    scp = SerialConnParam::LocalSHM(pid.parse().unwrap());
                 } else if cap[3].starts_with("server:") {
                     let addr = cap[3].get(7..).unwrap();
                     scp = SerialConnParam::Server(String::from(addr));

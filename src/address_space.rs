@@ -104,8 +104,8 @@ impl AddressSpace {
         addr_space
     }
 
-    fn mmap(addr: usize, fd: libc::c_int, offset: usize, size: usize,
-            prot: libc::c_int, flags: libc::c_int, zero: bool)
+    pub fn mmap(addr: usize, fd: libc::c_int, offset: usize, size: usize,
+                prot: libc::c_int, flags: libc::c_int, zero: bool)
         -> *mut libc::c_void
     {
         let res = unsafe {
@@ -235,27 +235,37 @@ impl AddressSpace {
         }
     }
 
-    fn create_shm(name: &str, size: usize) -> RawFd {
-        let pid = std::process::id();
+    fn do_create_shm(name: &str, size: usize, pid: usize, flags: i32) -> RawFd {
         let full_name = format!("/xgbcrew-{}-{}\0", name, pid);
 
         let shmfd = unsafe {
             libc::shm_open(full_name.as_bytes().as_ptr() as *const libc::c_char,
-                           libc::O_RDWR | libc::O_CREAT,
-                           0o755)
+                           flags, 0o755)
         };
         if shmfd < 0 {
             panic!("Creating SHM region failed");
         }
 
-        let res = unsafe {
-            libc::ftruncate(shmfd, size as libc::off_t)
-        };
-        if res < 0 {
-            panic!("Truncating SHM region failed");
+        if flags & libc::O_CREAT != 0 {
+            let res = unsafe {
+                libc::ftruncate(shmfd, size as libc::off_t)
+            };
+            if res < 0 {
+                panic!("Truncating SHM region failed");
+            }
         }
 
         shmfd
+    }
+
+    pub fn create_shm(name: &str, size: usize) -> RawFd {
+        let pid = std::process::id();
+        Self::do_create_shm(name, size, pid as usize,
+                            libc::O_RDWR | libc::O_CREAT)
+    }
+
+    pub fn open_shm(name: &str, pid: usize) -> RawFd {
+        Self::do_create_shm(name, 0, pid, libc::O_RDWR)
     }
 
     fn ensure_hram_shm(&mut self) {
