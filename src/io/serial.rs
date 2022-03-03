@@ -14,6 +14,7 @@ const LINK_PORT: u16 = 0x9bc1u16; /* xgbc link */
 pub enum SerialConnParam {
     Disabled,
     LocalAuto,
+    #[cfg(target_os = "linux")]
     LocalSHM(usize),
     Client(String),
     Server(String),
@@ -49,6 +50,7 @@ impl SerialState {
             match param {
                 SerialConnParam::Disabled => return None,
 
+                #[cfg(target_os = "linux")]
                 SerialConnParam::LocalSHM(pid) => {
                     let shm_fd = AddressSpace::open_shm("hram", *pid);
 
@@ -118,7 +120,11 @@ impl SerialState {
         }
         if con.is_none() && server.is_none() {
             match param {
-                SerialConnParam::Disabled | SerialConnParam::LocalSHM(_) =>
+                SerialConnParam::Disabled =>
+                    unreachable!(),
+
+                #[cfg(target_os = "linux")]
+                SerialConnParam::LocalSHM(_) =>
                     unreachable!(),
 
                 SerialConnParam::LocalAuto | SerialConnParam::Server(_) =>

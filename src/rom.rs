@@ -1,4 +1,5 @@
 use std::io::{Read, Seek, SeekFrom, Write};
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::SystemTime;
 
 use crate::address_space::AddressSpace;
@@ -28,6 +29,7 @@ struct RomDataArea {
 
 #[derive(Serialize, Deserialize, Copy, Clone, Debug)]
 struct RamRTCData {
+    #[cfg(not(target_arch = "wasm32"))]
     set_at: SystemTime,
 
     secs: u8,
@@ -64,10 +66,14 @@ pub struct Cartridge {
     mbc3_hidden_ram_rw: bool,
     mbc3_clock_sel: u8,
     rtc: Option<RamRTCData>,
+    #[cfg(not(target_arch = "wasm32"))]
     rtc_latched: Option<SystemTime>,
 
     #[savestate(skip_if("version < 4"))]
     pub rumble_state: bool,
+
+    #[savestate(skip)]
+    pub name: String,
 }
 
 impl Cartridge {
@@ -84,9 +90,12 @@ impl Cartridge {
             mbc3_hidden_ram_rw: false,
             mbc3_clock_sel: 0,
             rtc: None,
+            #[cfg(not(target_arch = "wasm32"))]
             rtc_latched: None,
 
             rumble_state: false,
+
+            name: "".into(),
         }
     }
 
@@ -210,6 +219,7 @@ impl Cartridge {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn mbc3_time(&self) -> (u64, bool) {
         let rtc =
             match self.rtc.as_ref() {
@@ -246,6 +256,11 @@ impl Cartridge {
         }
 
         (secs % (86400 * 512), dc)
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn mbc3_time(&self) -> (u64, bool) {
+        (0, false)
     }
 
     fn mbc3_write(addr_space: &mut AddressSpace, addr: u16, mut val: u8) {
@@ -314,6 +329,7 @@ impl Cartridge {
 
             0x6000 => {
                 /* TODO: Stricter latching handling */
+                #[cfg(not(target_arch = "wasm32"))]
                 if val != 0 {
                     c.rtc_latched = Some(SystemTime::now());
                 }
@@ -383,7 +399,10 @@ impl Cartridge {
                     tsecs += 86400 * 512;
                 }
 
-                rtc.set_at = SystemTime::now();
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    rtc.set_at = SystemTime::now();
+                }
 
                 rtc.secs = (tsecs % 60) as u8;
                 rtc.mins = ((tsecs / 60) % 60) as u8;
@@ -391,12 +410,15 @@ impl Cartridge {
                 rtc.days = ((tsecs / 86400) & 0x3ff) as u16;
                 rtc.halted = halted;
 
-                let pos = c.extram_size * 8192;
-                addr_space.extram_file.seek(SeekFrom::Start(pos as u64))
-                                      .unwrap();
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let pos = c.extram_size * 8192;
+                    addr_space.extram_file.seek(SeekFrom::Start(pos as u64))
+                                          .unwrap();
 
-                let raw_rtc_data = bincode::serialize(&rtc).unwrap();
-                addr_space.extram_file.write_all(&raw_rtc_data).unwrap();
+                    let raw_rtc_data = bincode::serialize(&rtc).unwrap();
+                    addr_space.extram_file.write_all(&raw_rtc_data).unwrap();
+                }
 
                 if addr_space.extram_bank == Some(-1isize as usize) {
                     /* So we can do a memset */
@@ -477,9 +499,15 @@ impl Cartridge {
 
 
 pub fn load_rom(addr_space: &mut AddressSpace) -> SystemParams {
+    #[cfg(not(target_arch = "wasm32"))]
     addr_space.rom_file.seek(SeekFrom::Start(0x100)).unwrap();
 
     let mut raw_rda: [u8; 0x50] = [0u8; 0x50];
+    #[cfg(target_arch = "wasm32")]
+    for i in 0..0x50 {
+        raw_rda[i] = addr_space.full_rom[0x100 + i];
+    }
+    #[cfg(not(target_arch = "wasm32"))]
     addr_space.rom_file.read_exact(&mut raw_rda).unwrap();
 
     let rom_data_area: RomDataArea =
@@ -571,6 +599,7 @@ pub fn load_rom(addr_space: &mut AddressSpace) -> SystemParams {
     /* FIXME: Can you get this statically? */
     let rtc_data_length =
         bincode::serialize(&RamRTCData {
+            #[cfg(not(target_arch = "wasm32"))]
             set_at: SystemTime::UNIX_EPOCH,
 
             secs: 0,
@@ -585,24 +614,34 @@ pub fn load_rom(addr_space: &mut AddressSpace) -> SystemParams {
         extram_len += rtc_data_length;
     }
 
-    if cfg!(target_os = "linux") {
-        addr_space.extram_file.set_len(extram_len as u64).unwrap();
-    } else {
-        let cur_len = addr_space.extram_file.seek(SeekFrom::End(0)).unwrap();
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        if cfg!(target_os = "linux") {
+            addr_space.extram_file.set_len(extram_len as u64).unwrap();
+        } else {
+            let cur_len = addr_space.extram_file.seek(SeekFrom::End(0)).unwrap();
 
-        if cur_len < extram_len as u64 {
-            let mut empty = Vec::<u8>::new();
-            empty.resize(extram_len - cur_len as usize, 0u8);
-            addr_space.extram_file.write_all(&empty).unwrap();
+            if cur_len < extram_len as u64 {
+                let mut empty = Vec::<u8>::new();
+                empty.resize(extram_len - cur_len as usize, 0u8);
+                addr_space.extram_file.write_all(&empty).unwrap();
+            }
         }
     }
 
+    #[cfg(target_arch = "wasm32")]
+    addr_space.full_extram.resize(extram_len, 0);
+
     let rtc_data = if rtc {
-            let pos = extram_size * 8192;
-            addr_space.extram_file.seek(SeekFrom::Start(pos as u64)).unwrap();
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let pos = extram_size * 8192;
+                addr_space.extram_file.seek(SeekFrom::Start(pos as u64)).unwrap();
+            }
 
             let mut raw_rtc_data = Vec::<u8>::new();
             raw_rtc_data.resize(rtc_data_length, 0u8);
+            #[cfg(not(target_arch = "wasm32"))]
             addr_space.extram_file.read_exact(&mut raw_rtc_data).unwrap();
 
             Some(bincode::deserialize::<RamRTCData>(&raw_rtc_data).unwrap())
@@ -622,9 +661,12 @@ pub fn load_rom(addr_space: &mut AddressSpace) -> SystemParams {
         mbc3_hidden_ram_rw: false,
         mbc3_clock_sel: 0,
         rtc: rtc_data,
+        #[cfg(not(target_arch = "wasm32"))]
         rtc_latched: None,
 
         rumble_state: false,
+
+        name: cart_name.clone(),
     };
 
     Cartridge::init_map(addr_space);

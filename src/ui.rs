@@ -1,5 +1,10 @@
+#[cfg(not(target_arch = "wasm32"))]
 pub mod sc;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod sdl;
+
+#[cfg(target_arch = "wasm32")]
+pub mod web;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -7,8 +12,14 @@ use std::sync::mpsc::Sender;
 
 use crate::io::keypad::KeypadKey;
 use crate::system_state::SystemState;
+
+#[cfg(not(target_arch = "wasm32"))]
 use sdl::SDLUI;
+#[cfg(not(target_arch = "wasm32"))]
 use sc::SC;
+
+#[cfg(target_arch = "wasm32")]
+use web::WebUI;
 
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy)]
@@ -136,8 +147,13 @@ struct KeyboardState {
 
 
 pub struct UI {
+    #[cfg(not(target_arch = "wasm32"))]
     frontend: SDLUI,
+    #[cfg(not(target_arch = "wasm32"))]
     sc: Option<SC>,
+
+    #[cfg(target_arch = "wasm32")]
+    frontend: WebUI,
 
     keyboard_state: KeyboardState,
     fullscreen: bool,
@@ -172,8 +188,13 @@ macro_rules! binding {
 
 impl UI {
     pub fn new(cart_name: &String) -> Self {
+        #[cfg(not(target_arch = "wasm32"))]
         let mut frontend = SDLUI::new();
 
+        #[cfg(target_arch = "wasm32")]
+        let frontend = WebUI::new();
+
+        #[cfg(not(target_arch = "wasm32"))]
         let sc = match SC::new() {
             Ok(sc) => sc,
             Err(msg) => {
@@ -184,8 +205,10 @@ impl UI {
         };
 
         Self {
-            frontend: frontend,
-            sc: sc,
+            frontend,
+
+            #[cfg(not(target_arch = "wasm32"))]
+            sc,
 
             keyboard_state: KeyboardState {
                 shift: false,
@@ -362,12 +385,14 @@ impl UI {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn poll_sc_event(&mut self) -> Option<UIEvent> {
-        if let Some(sc) = &mut self.sc {
-            sc.poll_event()
-        } else {
-            None
-        }
+        self.sc.as_mut().and_then(|sc| sc.poll_event())
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn poll_sc_event(&mut self) -> Option<UIEvent> {
+        None
     }
 
     pub fn poll_event(&mut self) -> Option<UIEvent> {
@@ -386,13 +411,18 @@ impl UI {
              *       OSD messages when paused */
             self.refresh_lcd(sys_state);
 
+            #[cfg(not(target_arch = "wasm32"))]
             if let Some(sc) = &mut self.sc {
                 if let Some(evt) = sc.wait_event(to) {
                     return evt;
                 } else if let Some(evt) = self.frontend.poll_event() {
                     return evt;
                 }
-            } else if let Some(evt) = self.frontend.wait_event(to) {
+                // Do not hang on frontend events when there is an SC
+                continue;
+            }
+
+            if let Some(evt) = self.frontend.wait_event(to) {
                 return evt;
             }
         }
@@ -402,15 +432,40 @@ impl UI {
         self.frontend.setup_audio(params)
     }
 
+    #[cfg(target_arch = "wasm32")]
+    pub fn get_vblank_sound_buf(&mut self) -> Option<&mut Vec<f32>> {
+        self.frontend.get_vblank_sound_buf()
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn submit_vblank_sound_buf(&mut self) {
+        self.frontend.submit_vblank_sound_buf();
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn get_sound_ringbuf(&self) -> Option<&[f32]> {
+        self.frontend.get_sound_ringbuf()
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn get_sound_ringbuf_ptrs(&mut self) -> Option<&mut [u32]> {
+        self.frontend.get_sound_ringbuf_ptrs()
+    }
+
     pub fn refresh_lcd(&mut self, sys_state: &SystemState) {
         self.frontend.present_frame(&sys_state.display.lcd_pixels);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn vblank_events(&mut self, sys_state: &SystemState) {
         if let Some(sc) = &mut self.sc {
             sc.rumble(sys_state.addr_space.cartridge.rumble_state &&
                       !self.paused);
         }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn vblank_events(&mut self, _sys_state: &SystemState) {
     }
 
     pub fn load_sgb_border(&mut self, sys_state: &SystemState) {
@@ -428,6 +483,7 @@ impl UI {
         self.frontend.set_paused(paused);
 
         if !paused {
+            #[cfg(not(target_arch = "wasm32"))]
             if let Some(sc) = &mut self.sc {
                 sc.rumble(false);
             }

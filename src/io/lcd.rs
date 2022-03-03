@@ -1,3 +1,5 @@
+#[cfg(target_arch = "wasm32")]
+use crate::address_space::AddressSpace;
 use crate::io::{hdma_copy_16b, IOSpace, io_write};
 use crate::io::int::IRQ;
 use crate::sgb::sgb_buf_done;
@@ -78,14 +80,14 @@ impl DisplayState {
             bcps: 0,
             ocps: 0,
 
-            bg_palette: [0xffffff, 0xa8a8a8, 0x505050, 0x000000,
-                         0xffffff, 0xa8a8a8, 0x505050, 0x000000,
-                         0xffffff, 0xa8a8a8, 0x505050, 0x000000,
-                         0xffffff, 0xa8a8a8, 0x505050, 0x000000,
-                         0xffffff, 0xa8a8a8, 0x505050, 0x000000,
-                         0xffffff, 0xa8a8a8, 0x505050, 0x000000,
-                         0xffffff, 0xa8a8a8, 0x505050, 0x000000,
-                         0xffffff, 0xa8a8a8, 0x505050, 0x000000],
+            bg_palette: [0xffffffff, 0xffa8a8a8, 0xff505050, 0xff000000,
+                         0xffffffff, 0xffa8a8a8, 0xff505050, 0xff000000,
+                         0xffffffff, 0xffa8a8a8, 0xff505050, 0xff000000,
+                         0xffffffff, 0xffa8a8a8, 0xff505050, 0xff000000,
+                         0xffffffff, 0xffa8a8a8, 0xff505050, 0xff000000,
+                         0xffffffff, 0xffa8a8a8, 0xff505050, 0xff000000,
+                         0xffffffff, 0xffa8a8a8, 0xff505050, 0xff000000,
+                         0xffffffff, 0xffa8a8a8, 0xff505050, 0xff000000],
 
             bg_palette15: [0x7fff, 0x5294, 0x294a, 0x0000,
                            0x7fff, 0x5294, 0x294a, 0x0000,
@@ -96,14 +98,14 @@ impl DisplayState {
                            0x7fff, 0x5294, 0x294a, 0x0000,
                            0x7fff, 0x5294, 0x294a, 0x0000],
 
-            obj_palette: [0xffffff, 0xa8a8a8, 0x505050, 0x000000,
-                          0xffffff, 0xa8a8a8, 0x505050, 0x000000,
-                          0xffffff, 0xa8a8a8, 0x505050, 0x000000,
-                          0xffffff, 0xa8a8a8, 0x505050, 0x000000,
-                          0xffffff, 0xa8a8a8, 0x505050, 0x000000,
-                          0xffffff, 0xa8a8a8, 0x505050, 0x000000,
-                          0xffffff, 0xa8a8a8, 0x505050, 0x000000,
-                          0xffffff, 0xa8a8a8, 0x505050, 0x000000],
+            obj_palette: [0xffffffff, 0xffa8a8a8, 0xff505050, 0xff000000,
+                          0xffffffff, 0xffa8a8a8, 0xff505050, 0xff000000,
+                          0xffffffff, 0xffa8a8a8, 0xff505050, 0xff000000,
+                          0xffffffff, 0xffa8a8a8, 0xff505050, 0xff000000,
+                          0xffffffff, 0xffa8a8a8, 0xff505050, 0xff000000,
+                          0xffffffff, 0xffa8a8a8, 0xff505050, 0xff000000,
+                          0xffffffff, 0xffa8a8a8, 0xff505050, 0xff000000,
+                          0xffffffff, 0xffa8a8a8, 0xff505050, 0xff000000],
 
             obj_palette15: [0x7fff, 0x5294, 0x294a, 0x0000,
                             0x7fff, 0x5294, 0x294a, 0x0000,
@@ -129,6 +131,12 @@ impl DisplayState {
     }
 
     pub fn init_system_state(sys_state: &mut SystemState) {
+        sys_state.io_set_reg(IOReg::LCDC, 0x91);
+        sys_state.io_set_reg(IOReg::STAT, 0x06);
+        sys_state.io_set_reg(IOReg::BGP, 0xfc);
+        sys_state.io_set_reg(IOReg::OBP0, 0xff);
+        sys_state.io_set_reg(IOReg::OBP1, 0xff);
+
         io_write(sys_state, IOReg::LCDC as u16, 0x91);
         io_write(sys_state, IOReg::STAT as u16, 0x06);
         io_write(sys_state, IOReg::BGP  as u16, 0xfc);
@@ -419,11 +427,36 @@ fn draw_wnd_line(sys_state: &mut SystemState,
 }
 
 
+#[cfg(not(target_arch = "wasm32"))]
 fn oam_search(objs: &mut Vec::<u32>, oam: *const u32,
               line: i32, obj_height: i32, cgb: bool)
 {
     for i in 0..40 {
         let obj = unsafe { *oam.offset(i) };
+        let by = (obj & 0xff) as i32 - 16;
+
+        if by <= line && by + obj_height > line {
+            objs.push(obj);
+        }
+    }
+
+    if !cgb {
+        objs.sort_by_key(|x| (x >> 8) & 0xffu32);
+    }
+
+    objs.truncate(10);
+}
+
+#[cfg(target_arch = "wasm32")]
+fn oam_search(objs: &mut Vec::<u32>, addr_space: &AddressSpace,
+              line: i32, obj_height: i32, cgb: bool)
+{
+    for i in 0..40 {
+        let obj = addr_space.read_u8(i * 4 + 0xfe00) as u32 |
+            ((addr_space.read_u8(i * 4 + 0xfe01) as u32) << 8) |
+            ((addr_space.read_u8(i * 4 + 0xfe02) as u32) << 16) |
+            ((addr_space.read_u8(i * 4 + 0xfe03) as u32) << 24);
+
         let by = (obj & 0xff) as i32 - 16;
 
         if by <= line && by + obj_height > line {
@@ -445,13 +478,18 @@ fn draw_obj_line(sys_state: &mut SystemState, screen_line: u8,
     let sofs = screen_line as usize * 160;
     let eofs = sofs + 160;
     let pixels = &mut d.lcd_pixels[sofs..eofs];
+    #[cfg(not(target_arch = "wasm32"))]
     let oam = sys_state.addr_space.raw_ptr(0xfe00) as *const u32;
     let full_vram = &sys_state.addr_space.full_vram;
 
     let mut objs = Vec::<u32>::with_capacity(40);
 
+    #[cfg(not(target_arch = "wasm32"))]
     oam_search(&mut objs, oam, screen_line as i32, d.obj_height as i32,
                sys_state.cgb);
+    #[cfg(target_arch = "wasm32")]
+    oam_search(&mut objs, &sys_state.addr_space, screen_line as i32,
+               d.obj_height as i32, sys_state.cgb);
 
     for obj in objs.iter().rev() {
         let bx = ((obj >> 8) & 0xffu32) as i32 - 8;
@@ -521,7 +559,7 @@ fn draw_line(sys_state: &mut SystemState, line: u8) {
 
     if !sys_state.display.enabled {
         for p in pixels {
-            *p = 0xffffff;
+            *p = 0xffffffff;
         }
         return;
     }
@@ -532,7 +570,7 @@ fn draw_line(sys_state: &mut SystemState, line: u8) {
 
     if !sys_state.display.bg_enabled {
         for p in pixels {
-            *p = 0x000000;
+            *p = 0xff000000;
         }
     } else {
         draw_bg_line(sys_state, abs_line, line, window_active, &mut bg_prio);
@@ -601,7 +639,7 @@ fn stat_mode_transition(sys_state: &mut SystemState, ly: u8, from: u8, to: u8) {
 
                 DisplaySGBMask::Black => {
                     for i in 0..(160 * 144) {
-                        d.lcd_pixels[i] = 0x000000;
+                        d.lcd_pixels[i] = 0xff000000;
                     }
                 },
 
@@ -705,7 +743,7 @@ pub fn rgb15_to_rgb24(rgb15: u16) -> u32 {
     let g8 = ((g * 255) / 31) as u32;
     let b8 = ((b * 255) / 31) as u32;
 
-    (r8 << 16) | (g8 << 8) | b8
+    0xff000000 | (r8 << 0) | (g8 << 8) | (b8 << 16)
 }
 
 pub fn lcd_write(sys_state: &mut SystemState, addr: u16, mut val: u8) {

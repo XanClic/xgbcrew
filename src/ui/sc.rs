@@ -126,10 +126,10 @@ impl SC {
         };
 
         let mut dev_found = None;
-        for dev in hidapi.devices() {
-            if dev.vendor_id == 0x28de &&
-                ((dev.product_id == 0x1142 && dev.interface_number == 1) ||
-                 (dev.product_id == 0x1102 && dev.interface_number == 2))
+        for dev in hidapi.device_list() {
+            if dev.vendor_id() == 0x28de &&
+                ((dev.product_id() == 0x1142 && dev.interface_number() == 1) ||
+                 (dev.product_id() == 0x1102 && dev.interface_number() == 2))
             {
                 dev_found = Some(dev);
                 break;

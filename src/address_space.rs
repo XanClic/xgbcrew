@@ -37,6 +37,9 @@ pub struct AddressSpace {
     hram_shm: Option<RawFd>,
     vram_shm: Option<RawFd>,
     wram_shm: Option<RawFd>,
+
+    // Always false because mmap'ed
+    pub extram_dirty: bool,
 }
 
 
@@ -96,6 +99,8 @@ impl AddressSpace {
             hram_shm: None,
             vram_shm: None,
             wram_shm: None,
+
+            extram_dirty: false,
         };
 
         /* I/O must be mapped for further system initalization */
@@ -445,6 +450,12 @@ impl AddressSpace {
 
     pub fn raw_mut_ptr(&mut self, addr: u16) -> *mut u8 {
         Self::get_raw_ptr(addr)
+    }
+
+    pub fn flush_extram(&self) {
+        // For this implementation, the external RAM will never be dirty because the storage file
+        // is mmap'ed and so will always be in sync
+        unreachable!();
     }
 }
 

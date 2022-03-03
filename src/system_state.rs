@@ -110,6 +110,9 @@ pub struct System {
 
     #[savestate(skip)]
     paused: bool,
+
+    #[savestate(skip)]
+    pub extram_dirtying: bool,
 }
 
 #[derive(SaveState)]
@@ -160,6 +163,7 @@ impl System {
             base_path: base_path,
 
             paused: false,
+            extram_dirtying: false,
         }
     }
 
@@ -276,7 +280,7 @@ impl System {
         }
     }
 
-    pub fn main_loop(&mut self) {
+    pub fn main_loop(&mut self, break_on_vblank: bool) {
         loop {
             self.exec();
 
@@ -286,11 +290,34 @@ impl System {
 
             if self.sys_state.vblanked {
                 self.sys_state.vblanked = false;
+
+                #[cfg(target_arch = "wasm32")]
+                {
+                    if let Some(buf) = self.ui.get_vblank_sound_buf() {
+                        self.sys_state.sound.fill_outbuf(&mut self.sys_state.addr_space, buf.as_mut_slice());
+                        self.ui.submit_vblank_sound_buf();
+                    }
+                }
+
                 self.ui.refresh_lcd(&self.sys_state);
                 self.handle_events();
 
                 if let Some(serial) = self.sys_state.serial.as_mut() {
                     serial.vblank_check();
+                }
+
+                if self.extram_dirtying && !self.sys_state.addr_space.extram_dirty {
+                    self.sys_state.addr_space.flush_extram();
+                    self.extram_dirtying = false;
+                }
+
+                if self.sys_state.addr_space.extram_dirty {
+                    self.extram_dirtying = true;
+                    self.sys_state.addr_space.extram_dirty = false;
+                }
+
+                if break_on_vblank {
+                    break;
                 }
             }
         }
@@ -338,6 +365,7 @@ impl SystemState {
             };
 
         io::lcd::add_cycles(self, dcycles);
+        #[cfg(not(target_arch = "wasm32"))]
         self.sound.add_cycles(&mut self.addr_space, dcycles, self.realtime);
         io::timer::add_cycles(self, count);
 

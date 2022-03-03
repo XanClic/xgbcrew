@@ -1,7 +1,9 @@
 #[path = "address_space/helpers.rs"]
 pub mod helpers;
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::fs;
+#[cfg(not(target_arch = "wasm32"))]
 use std::io::{Read, Seek, SeekFrom, Write};
 
 use crate::rom::Cartridge;
@@ -11,7 +13,9 @@ pub use helpers::U8Split;
 
 
 pub struct AddressSpace {
+    #[cfg(not(target_arch = "wasm32"))]
     pub rom_file: fs::File,
+    #[cfg(not(target_arch = "wasm32"))]
     pub extram_file: fs::File,
 
     pub cartridge: Cartridge,
@@ -27,13 +31,20 @@ pub struct AddressSpace {
     full_hram: [u8; 0x1000],
     full_wram: [u8; 0x8000],
 
+    #[cfg(not(target_arch = "wasm32"))]
     full_rom: Vec<u8>,
-    full_extram: Vec<u8>,
+    #[cfg(target_arch = "wasm32")]
+    pub full_rom: Vec<u8>,
+    pub full_extram: Vec<u8>,
     virt_extram_page: [u8; 0x2000],
+
+    pub extram_dirty: bool,
+    extram_invalid: bool,
 }
 
 
 impl AddressSpace {
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new(rom_path: &String, ram_path: &String) -> Self {
         Self {
             rom_file: std::fs::OpenOptions::new()
@@ -61,6 +72,33 @@ impl AddressSpace {
             full_rom: Vec::new(),
             full_extram: Vec::new(),
             virt_extram_page: [0u8; 0x2000],
+
+            extram_dirty: false,
+            extram_invalid: true,
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn new(rom: Vec<u8>) -> Self {
+        Self {
+            cartridge: Cartridge::new(),
+
+            rom_bank: 1,
+            vram_bank: 0,
+            extram_bank: None,
+            extram_rw: false,
+            wram_bank: 1,
+
+            full_vram: [0u8; 0x4000],
+            full_hram: [0u8; 0x1000],
+            full_wram: [0u8; 0x8000],
+
+            full_rom: rom,
+            full_extram: Vec::new(),
+            virt_extram_page: [0u8; 0x2000],
+
+            extram_dirty: false,
+            extram_invalid: true,
         }
     }
 
@@ -81,15 +119,52 @@ impl AddressSpace {
 
         self.full_rom.resize(rom_size, 0);
 
-        self.rom_file.seek(SeekFrom::Start(0)).unwrap();
-        self.rom_file.read_exact(self.full_rom.as_mut_slice()).unwrap();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.rom_file.seek(SeekFrom::Start(0)).unwrap();
+            self.rom_file.read_exact(self.full_rom.as_mut_slice()).unwrap();
+        }
 
         let extram_size = self.cartridge.extram_size * 0x2000;
 
         self.full_extram.resize(extram_size, 0);
 
-        self.extram_file.seek(SeekFrom::Start(0)).unwrap();
-        self.extram_file.read_exact(self.full_extram.as_mut_slice()).unwrap();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.extram_file.seek(SeekFrom::Start(0)).unwrap();
+            self.extram_file.read_exact(self.full_extram.as_mut_slice()).unwrap();
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        self.read_wasm_sav();
+
+        self.extram_invalid = false;
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn read_wasm_sav(&mut self) -> Option<()> {
+        let window = web_sys::window()?;
+        let ls = window.local_storage().ok()??;
+
+        let sav = ls.get_item(&self.cartridge.name).ok()??;
+        self.full_extram = base64::decode(sav).ok()?;
+
+        Some(())
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn write_wasm_sav(&self) -> Option<()> {
+        if self.extram_invalid {
+            return None;
+        }
+
+        let window = web_sys::window()?;
+        let ls = window.local_storage().ok()??;
+
+        let sav = base64::encode(&self.full_extram);
+        ls.set_item(&self.cartridge.name, &sav).ok()?;
+
+        Some(())
     }
 
     pub fn rom_read(&self, addr: u16) -> u8 {
@@ -125,11 +200,27 @@ impl AddressSpace {
                 self.full_extram[full_ofs] = val;
 
                 /* TODO: Batch writes, perhaps per frame? */
-                self.extram_file.seek(SeekFrom::Start(full_ofs as u64))
-                                .unwrap();
-                self.extram_file.write_all(&[val]).unwrap();
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    self.extram_file.seek(SeekFrom::Start(full_ofs as u64))
+                                    .unwrap();
+                    self.extram_file.write_all(&[val]).unwrap();
+                }
+
+                #[cfg(target_arch = "wasm32")]
+                {
+                    self.extram_dirty = true;
+                }
             }
         }
+    }
+
+    pub fn flush_extram(&mut self) {
+        #[cfg(target_arch = "wasm32")]
+        self.write_wasm_sav();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        unreachable!();
     }
 
     pub fn set_virtual_extram(&mut self, val: u8) {
@@ -174,6 +265,7 @@ impl AddressSpace {
         self.full_hram[addr as usize - 0xf000] = val;
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn raw_ptr(&self, addr: u16) -> *const u8 {
         if addr < 0x4000 {
             &self.full_rom[addr as usize] as *const u8
@@ -210,6 +302,40 @@ impl AddressSpace {
         }
     }
 
+    #[cfg(target_arch = "wasm32")]
+    pub fn read_u8(&self, addr: u16) -> u8 {
+        if addr < 0x4000 {
+            self.full_rom[addr as usize]
+        } else if addr < 0x8000 {
+            self.full_rom[self.rom_bank * 0x4000 + (addr as usize - 0x4000)]
+        } else if addr < 0xa000 {
+            self.full_vram[self.vram_bank * 0x2000 + (addr as usize - 0x8000)]
+        } else if addr < 0xc000 {
+            if let Some(bank) = self.extram_bank {
+                if bank == (-1isize as usize) {
+                    self.virt_extram_page[addr as usize - 0xa000]
+                } else {
+                    self.full_extram[bank * 0x2000 + (addr as usize - 0xa000)]
+                }
+            } else {
+                panic!("raw_ptr() tried to access extram, but none mapped");
+            }
+        } else if addr < 0xd000 {
+            self.full_wram[addr as usize - 0xc000]
+        } else if addr < 0xe000 {
+            self.full_wram[self.wram_bank * 0x1000 + (addr as usize - 0xd000)]
+        } else if addr < 0xfe00 {
+            self.read_u8(addr - 0x2000)
+        } else if addr < 0xfea0 {
+            self.full_hram[addr as usize - 0xf000]
+        } else if addr < 0xff00 {
+            self.read_u8(addr - 0x2000)
+        } else {
+            self.full_hram[addr as usize - 0xf000]
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn raw_mut_ptr(&mut self, addr: u16) -> *mut u8 {
         if addr < 0x4000 {
             &mut self.full_rom[addr as usize] as *mut u8
@@ -250,6 +376,48 @@ impl AddressSpace {
             &mut self.full_hram[addr as usize - 0xf000] as *mut u8
         }
     }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn write_u8(&mut self, addr: u16, val: u8) {
+        if addr < 0x4000 {
+            self.full_rom[addr as usize] = val;
+        } else if addr < 0x8000 {
+            self.full_rom[self.rom_bank * 0x4000 +
+                          (addr as usize - 0x4000)]
+                = val;
+        } else if addr < 0xa000 {
+            self.full_vram[self.vram_bank * 0x2000 +
+                           (addr as usize - 0x8000)]
+                = val;
+        } else if addr < 0xc000 {
+            if let Some(bank) = self.extram_bank {
+                if bank == (-1isize as usize) {
+                    self.virt_extram_page[addr as usize - 0xa000]
+                        = val;
+                } else {
+                    self.full_extram[bank * 0x2000 +
+                                     (addr as usize - 0xa000)]
+                        = val;
+                }
+            } else {
+                panic!("raw_ptr() tried to access extram, but none mapped");
+            }
+        } else if addr < 0xd000 {
+            self.full_wram[addr as usize - 0xc000] = val;
+        } else if addr < 0xe000 {
+            self.full_wram[self.wram_bank * 0x1000 +
+                           (addr as usize - 0xd000)]
+                = val;
+        } else if addr < 0xfe00 {
+            self.write_u8(addr - 0x2000, val);
+        } else if addr < 0xfea0 {
+            self.full_hram[addr as usize - 0xf000] = val;
+        } else if addr < 0xff00 {
+            self.write_u8(addr - 0x2000, val);
+        } else {
+            self.full_hram[addr as usize - 0xf000] = val;
+        }
+    }
 }
 
 
@@ -283,8 +451,13 @@ impl SaveState for AddressSpace {
         let extram_size = self.cartridge.extram_size * 0x2000;
         if extram_size != 0 {
             stream.read_exact(self.full_extram.as_mut_slice()).unwrap();
-            self.extram_file.seek(SeekFrom::Start(0)).unwrap();
-            self.extram_file.write_all(self.full_extram.as_slice()).unwrap();
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                self.extram_file.seek(SeekFrom::Start(0)).unwrap();
+                self.extram_file.write_all(self.full_extram.as_slice()).unwrap();
+            }
+            #[cfg(target_arch = "wasm32")]
+            self.write_wasm_sav();
         }
 
         stream.read_exact(&mut self.full_vram).unwrap();

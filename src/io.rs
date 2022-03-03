@@ -28,11 +28,16 @@ impl IOSpace for AddressSpace {
         }
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_arch = "wasm32")))]
     fn io_get_addr(&self, addr: u16) -> u8 {
         unsafe {
             *self.raw_ptr(addr + 0xff00)
         }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn io_get_addr(&self, addr: u16) -> u8 {
+        self.read_u8(addr + 0xff00)
     }
 
     #[cfg(target_os = "linux")]
@@ -42,11 +47,16 @@ impl IOSpace for AddressSpace {
         }
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_arch = "wasm32")))]
     fn io_set_addr(&mut self, addr: u16, val: u8) {
         unsafe {
             *self.raw_mut_ptr(addr + 0xff00) = val;
         }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn io_set_addr(&mut self, addr: u16, val: u8) {
+        self.write_u8(addr + 0xff00, val);
     }
 
     fn io_get_reg(&self, reg: IOReg) -> u8 {
@@ -136,13 +146,27 @@ fn dma_write(sys_state: &mut SystemState, _: u16, val: u8) {
         return;
     }
 
-    let src = sys_state.addr_space.raw_ptr((val as u16) << 8);
-    let dst = sys_state.addr_space.raw_mut_ptr(0xfe00);
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let src = sys_state.addr_space.raw_ptr((val as u16) << 8);
+        let dst = sys_state.addr_space.raw_mut_ptr(0xfe00);
 
-    unsafe {
-        libc::memcpy(dst as *mut libc::c_void,
-                     src as *const libc::c_void,
-                     160);
+        unsafe {
+            libc::memcpy(dst as *mut libc::c_void,
+                         src as *const libc::c_void,
+                         160);
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        let src = (val as u16) << 8;
+        let dst = 0xfe00;
+
+        for i in 0..160 {
+            let val = sys_state.addr_space.read_u8(src + i);
+            sys_state.addr_space.write_u8(dst + i, val);
+        }
     }
 }
 
@@ -155,8 +179,8 @@ pub fn hdma_copy_16b(sys_state: &mut SystemState) -> bool {
     let mut src = ((hdma.0 as u16) << 8) | (hdma.1 as u16);
     let mut dst = ((hdma.2 as u16) << 8) | (hdma.3 as u16);
 
-    let src_ptr = sys_state.addr_space.raw_ptr(src);
-    let dst_ptr = sys_state.addr_space.raw_mut_ptr(dst);
+    let it_src = src;
+    let it_dst = dst;
 
     src += 16;
     dst += 16;
@@ -166,10 +190,24 @@ pub fn hdma_copy_16b(sys_state: &mut SystemState) -> bool {
     sys_state.io_set_reg(IOReg::HDMA3, (dst >> 8) as u8);
     sys_state.io_set_reg(IOReg::HDMA4, dst as u8);
 
-    unsafe {
-        libc::memcpy(dst_ptr as *mut libc::c_void,
-                     src_ptr as *const libc::c_void,
-                     16);
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let src_ptr = sys_state.addr_space.raw_ptr(it_src);
+        let dst_ptr = sys_state.addr_space.raw_mut_ptr(it_dst);
+
+        unsafe {
+            libc::memcpy(dst_ptr as *mut libc::c_void,
+                         src_ptr as *const libc::c_void,
+                         16);
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        for i in 0..16 {
+            let val = sys_state.addr_space.read_u8(it_src + i);
+            sys_state.addr_space.write_u8(it_dst + i, val);
+        }
     }
 
     let (rem, done) = sys_state.io_get_reg(IOReg::HDMA5).overflowing_sub(1u8);

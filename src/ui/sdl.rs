@@ -40,7 +40,7 @@ impl SDLUI {
         let cvs = wnd.into_canvas().accelerated().build().unwrap();
         let txtc = cvs.texture_creator();
 
-        let pixel_fmt = sdl2::pixels::PixelFormatEnum::ARGB8888;
+        let pixel_fmt = sdl2::pixels::PixelFormatEnum::ABGR8888;
         let access = sdl2::render::TextureAccess::Streaming;
         let lcd_txt = unsafe {
             /* F this */

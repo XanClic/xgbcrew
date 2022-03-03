@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <title>xgbcrewasm</title>
+    </head>
+    <body>
+        <script type="module">
+            import init, { XGBCSystem } from "./pkg/xgbcrew.js";
+
+            const reader = new FileReader();
+
+            function memcpy(dst, dst_ofs, src, src_ofs, length) {
+                if (length > 0) {
+                    dst.set(src.subarray(src_ofs, src_ofs + length), dst_ofs);
+                }
+            }
+
+            reader.addEventListener("load", () => {
+                let xgbc_system;
+                let shared_audio_obj = {};
+                let unshared_audio_obj = {};
+
+                function setup_unshared_bufs() {
+                    unshared_audio_obj.buf =
+                        new Float32Array(unshared_audio_obj.wasm.memory.buffer,
+                                         unshared_audio_obj.buf_ptr,
+                                         unshared_audio_obj.buf_len);
+
+                    unshared_audio_obj.ptrs =
+                        new Uint32Array(unshared_audio_obj.wasm.memory.buffer,
+                                        unshared_audio_obj.ptrs_ptr,
+                                        2);
+                }
+
+                function iter() {
+                    unshared_audio_obj.ptrs[1] = shared_audio_obj.ptrs[1];
+
+                    xgbc_system.main_loop_iter();
+
+                    if (unshared_audio_obj.buf.byteLength == 0) {
+                        setup_unshared_bufs();
+                    }
+
+
+                    let si = shared_audio_obj.ptrs[0];
+                    let ei = unshared_audio_obj.ptrs[0];
+                    let buflen = unshared_audio_obj.buf.length;
+
+                    if (ei < si) {
+                        memcpy(shared_audio_obj.buf, si,
+                               unshared_audio_obj.buf, si,
+                               buflen - si);
+                        memcpy(shared_audio_obj.buf, 0,
+                               unshared_audio_obj.buf, 0,
+                               ei);
+                    } else {
+                        memcpy(shared_audio_obj.buf, si,
+                               unshared_audio_obj.buf, si,
+                               ei - si);
+                    }
+
+                    shared_audio_obj.ptrs[0] = ei;
+                }
+
+                init().then((wasm) => {
+                    let bytes = new Uint8Array(reader.result);
+                    xgbc_system = XGBCSystem.new(bytes);
+
+                    unshared_audio_obj.wasm = wasm;
+                    unshared_audio_obj.buf_ptr = xgbc_system.get_sound_ringbuf();
+                    unshared_audio_obj.buf_len = xgbc_system.get_sound_ringbuf_length();
+                    unshared_audio_obj.ptrs_ptr = xgbc_system.get_sound_ringbuf_ptrs();
+                    setup_unshared_bufs();
+
+                    shared_audio_obj.buf =
+                        new Float32Array(new SharedArrayBuffer(unshared_audio_obj.buf.byteLength));
+                    shared_audio_obj.ptrs =
+                        new Uint32Array(new SharedArrayBuffer(unshared_audio_obj.ptrs.byteLength));
+
+                    shared_audio_obj.ptrs[0] = 0;
+                    shared_audio_obj.ptrs[1] = 0;
+
+                    const audio_ctx = new AudioContext();
+                    audio_ctx.audioWorklet.addModule('audio-worklet.js').then(() => {
+                        const wasm_streamer_node = new AudioWorkletNode(audio_ctx, 'wasm-streamer');
+                        wasm_streamer_node.connect(audio_ctx.destination);
+                        wasm_streamer_node.port.postMessage(shared_audio_obj);
+                    });
+
+                    setInterval(iter, 17);
+                });
+            }, false);
+
+            export function load_file() {
+                const [file] = document.querySelector('input[type=file]').files;
+                if (file) {
+                    reader.readAsArrayBuffer(file);
+                }
+            }
+
+            window.load_file = load_file;
+        </script>
+
+        <style type="text/css">
+            table * {
+                text-align: center;
+            }
+            table td {
+                min-width: 1em;
+            }
+        </style>
+
+        <input type="file" onchange="load_file()" />
+        <br />
+        <br />
+        <canvas width="160" height="144" id="fb"></canvas>
+        <br />
+        <table>
+            <tbody>
+                <tr>
+                    <td></td>
+                    <td><input type="button" id="btn-up" value="↑" /></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td><input type="button" id="btn-left" value="←" /></td>
+                    <td></td>
+                    <td><input type="button" id="btn-right" value="→" /></td>
+                    <td></td>
+                    <td><input type="button" id="btn-b" value="B" /></td>
+                    <td><input type="button" id="btn-a" value="A" /></td>
+                </tr>
+                <tr>
+                    <td></td>
+                    <td><input type="button" id="btn-down" value="↓" /></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                    <td></td>
+                </tr>
+            </tbody>
+        </table>
+        <br />
+        <input type="button" id="btn-select" value="Select" />
+        <input type="button" id="btn-start" value="Start" />
+
+        <br /><br />
+        <p>
+            Key bindings:
+            <ul>
+                <li>A: X</li>
+                <li>B: Z</li>
+                <li>D-pad: Arrows</li>
+                <li>Select: Backspace</li>
+                <li>Start: Return</li>
+            </ul>
+        </p>
+    </body>
+</html>

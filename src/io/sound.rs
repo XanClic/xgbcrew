@@ -715,6 +715,52 @@ impl SoundState {
         }
     }
 
+    fn gen_one_frame(&mut self, addr_space: &mut AddressSpace) -> (f32, f32) {
+        let ch1 = self.ch1.get_sample(addr_space);
+        let ch2 = self.ch2.get_sample(addr_space);
+        let ch3 = self.ch3.get_sample(addr_space);
+        let ch4 = self.ch4.get_sample(addr_space);
+
+        let cm = self.shared.channel_mask;
+        let ch1_f = (if cm & (1 << 0) != 0 { ch1 } else { 0.0 },
+                     if cm & (1 << 4) != 0 { ch1 } else { 0.0 });
+        let ch2_f = (if cm & (1 << 1) != 0 { ch2 } else { 0.0 },
+                     if cm & (1 << 5) != 0 { ch2 } else { 0.0 });
+        let ch3_f = (if self.ch3_l { ch3 } else { 0.0 },
+                     if self.ch3_r { ch3 } else { 0.0 });
+        let ch4_f = (if cm & (1 << 3) != 0 { ch4 } else { 0.0 },
+                     if cm & (1 << 7) != 0 { ch4 } else { 0.0 });
+
+        if self.ch3.sample_i == 0 {
+            self.ch3_l = cm & (1 << 2) != 0;
+            self.ch3_r = cm & (1 << 6) != 0;
+        }
+
+        let cht_f = (
+                (ch1_f.0 + ch2_f.0 + ch3_f.0 + ch4_f.0) *
+                    self.shared.lvol * 0.005,
+                (ch1_f.1 + ch2_f.1 + ch3_f.1 + ch4_f.1) *
+                    self.shared.rvol * 0.005
+            );
+
+        let diff = (cht_f.0 - self.last_raw_sample.0,
+                    cht_f.1 - self.last_raw_sample.1);
+
+        let force = (diff.0 - self.position.0 * 0.04,
+                     diff.1 - self.position.1 * 0.04);
+
+        self.last_raw_sample.0 = cht_f.0;
+        self.last_raw_sample.1 = cht_f.1;
+
+        self.velocity.0 = self.velocity.0 * 0.1 + force.0 * 0.9;
+        self.velocity.1 = self.velocity.1 * 0.1 + force.1 * 0.9;
+
+        self.position.0 += self.velocity.0;
+        self.position.1 += self.velocity.1;
+
+        (self.position.0, self.position.1)
+    }
+
     /* @cycles must be in double-speed cycles */
     pub fn add_cycles(&mut self, addr_space: &mut AddressSpace,
                       cycles: u32, realtime: bool)
@@ -722,50 +768,10 @@ impl SoundState {
         self.ibuf_i_cycles += cycles as f32;
 
         while self.ibuf_i_cycles >= (2097152.0 / 44100.0) {
-            let ch1 = self.ch1.get_sample(addr_space);
-            let ch2 = self.ch2.get_sample(addr_space);
-            let ch3 = self.ch3.get_sample(addr_space);
-            let ch4 = self.ch4.get_sample(addr_space);
+            let (l, r) = self.gen_one_frame(addr_space);
 
-            let cm = self.shared.channel_mask;
-            let ch1_f = (if cm & (1 << 0) != 0 { ch1 } else { 0.0 },
-                         if cm & (1 << 4) != 0 { ch1 } else { 0.0 });
-            let ch2_f = (if cm & (1 << 1) != 0 { ch2 } else { 0.0 },
-                         if cm & (1 << 5) != 0 { ch2 } else { 0.0 });
-            let ch3_f = (if self.ch3_l { ch3 } else { 0.0 },
-                         if self.ch3_r { ch3 } else { 0.0 });
-            let ch4_f = (if cm & (1 << 3) != 0 { ch4 } else { 0.0 },
-                         if cm & (1 << 7) != 0 { ch4 } else { 0.0 });
-
-            if self.ch3.sample_i == 0 {
-                self.ch3_l = cm & (1 << 2) != 0;
-                self.ch3_r = cm & (1 << 6) != 0;
-            }
-
-            let cht_f = (
-                    (ch1_f.0 + ch2_f.0 + ch3_f.0 + ch4_f.0) *
-                        self.shared.lvol * 0.005,
-                    (ch1_f.1 + ch2_f.1 + ch3_f.1 + ch4_f.1) *
-                        self.shared.rvol * 0.005
-                );
-
-            let diff = (cht_f.0 - self.last_raw_sample.0,
-                        cht_f.1 - self.last_raw_sample.1);
-
-            let force = (diff.0 - self.position.0 * 0.04,
-                         diff.1 - self.position.1 * 0.04);
-
-            self.last_raw_sample.0 = cht_f.0;
-            self.last_raw_sample.1 = cht_f.1;
-
-            self.velocity.0 = self.velocity.0 * 0.1 + force.0 * 0.9;
-            self.velocity.1 = self.velocity.1 * 0.1 + force.1 * 0.9;
-
-            self.position.0 += self.velocity.0;
-            self.position.1 += self.velocity.1;
-
-            self.intbuf[self.ibuf_i + 0] = self.position.0;
-            self.intbuf[self.ibuf_i + 1] = self.position.1;
+            self.intbuf[self.ibuf_i + 0] = l;
+            self.intbuf[self.ibuf_i + 1] = r;
 
             self.ibuf_i_cycles -= 2097152.0 / 44100.0;
             self.ibuf_i = (self.ibuf_i + 2) % BUFSZ;
@@ -792,7 +798,16 @@ impl SoundState {
                         };
                 }
             }
+        }
+    }
 
+    #[cfg(target_arch = "wasm32")]
+    pub fn fill_outbuf(&mut self, addr_space: &mut AddressSpace, output: &mut [f32]) {
+        for i in 0..(output.len() / 2) {
+            let (l, r) = self.gen_one_frame(addr_space);
+
+            output[i * 2 + 0] = l;
+            output[i * 2 + 1] = r;
         }
     }
 

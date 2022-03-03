@@ -99,5 +99,5 @@ Options:
     let mut system = box System::new(system_state, ui,
                                      base_path.take().unwrap());
 
-    system.main_loop();
+    system.main_loop(false);
 }
