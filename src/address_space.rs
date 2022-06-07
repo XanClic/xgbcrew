@@ -80,6 +80,7 @@ impl AddressSpace {
             wram_bank: 1,
 
             full_vram: unsafe {
+                #[allow(deref_nullptr)]
                 &mut *(std::ptr::null_mut() as *mut [u8; 0x4000])
             },
 
