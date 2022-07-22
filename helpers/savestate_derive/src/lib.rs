@@ -169,7 +169,7 @@ fn save_state_derive_struct(name: syn::Ident, sf: syn::FieldsNamed)
                 }
             }
         }
-    }).collect::<Vec<quote::__rt::TokenStream>>();
+    }).collect::<Vec<proc_macro2::TokenStream>>();
 
     let import_list = v.iter().map(|attr| {
         let name = &attr.name;
@@ -213,7 +213,7 @@ fn save_state_derive_struct(name: syn::Ident, sf: syn::FieldsNamed)
                 }
             }
         }
-    }).collect::<Vec<quote::__rt::TokenStream>>();
+    }).collect::<Vec<proc_macro2::TokenStream>>();
 
     let result = quote! {
         impl savestate::SaveState for #name {

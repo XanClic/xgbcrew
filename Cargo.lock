@@ -359,6 +359,7 @@ name = "savestate_derive"
 version = "0.1.0"
 dependencies = [
  "log",
+ "proc-macro2",
  "quote",
  "savestate",
  "syn",
