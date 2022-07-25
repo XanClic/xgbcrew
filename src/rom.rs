@@ -1,6 +1,8 @@
 use std::io::{Read, Seek, SeekFrom, Write};
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::SystemTime;
+#[cfg(target_arch = "wasm32")]
+use instant::SystemTime;
 
 use crate::address_space::AddressSpace;
 use crate::io::serial::SerialConnParam;
@@ -27,10 +29,16 @@ struct RomDataArea {
     checksum: u16,
 }
 
-#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
+// Implemented like SystemTime on Unix systems so we know exactly what we serialize here
+#[derive(Serialize, Deserialize, Copy, Clone, Debug, Default)]
+struct SerSystemTime {
+    tv_sec: i64,
+    tv_nsec: i64,
+}
+
+#[derive(Serialize, Deserialize, Copy, Clone, Debug, Default)]
 struct RamRTCData {
-    #[cfg(not(target_arch = "wasm32"))]
-    set_at: SystemTime,
+    set_at: SerSystemTime,
 
     secs: u8,
     mins: u8,
@@ -66,8 +74,7 @@ pub struct Cartridge {
     mbc3_hidden_ram_rw: bool,
     mbc3_clock_sel: u8,
     rtc: Option<RamRTCData>,
-    #[cfg(not(target_arch = "wasm32"))]
-    rtc_latched: Option<SystemTime>,
+    rtc_latched: Option<SerSystemTime>,
 
     #[savestate(skip_if("version < 4"))]
     pub rumble_state: bool,
@@ -90,7 +97,6 @@ impl Cartridge {
             mbc3_hidden_ram_rw: false,
             mbc3_clock_sel: 0,
             rtc: None,
-            #[cfg(not(target_arch = "wasm32"))]
             rtc_latched: None,
 
             rumble_state: false,
@@ -219,7 +225,6 @@ impl Cartridge {
         }
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     fn mbc3_time(&self) -> (u64, bool) {
         let rtc =
             match self.rtc.as_ref() {
@@ -229,38 +234,27 @@ impl Cartridge {
 
         let lt = match self.rtc_latched {
             Some(x) => x,
-            None => SystemTime::now(),
+            None => SystemTime::now().into(),
         };
 
-        let base = rtc.secs as u64 +
-                   60 * (rtc.mins as u64 +
-                         60 * (rtc.hours as u64 +
-                               24 * ((rtc.days & 0x1ff) as u64)));
+        let base = rtc.secs as i64 +
+                   60 * (rtc.mins as i64 +
+                         60 * (rtc.hours as i64 +
+                               24 * ((rtc.days & 0x1ff) as i64)));
 
         let mut dc = rtc.days & (1 << 15) != 0;
 
         let secs = if rtc.halted {
                 base
             } else {
-                let s =
-                    match lt.duration_since(rtc.set_at) {
-                        Ok(x) => x.as_secs(),
-                        Err(_) => 0,
-                    };
-
-                base + s
+                base + lt.secs_since(&rtc.set_at)
             };
 
         if secs >= 86400 * 512 {
             dc = true;
         }
 
-        (secs % (86400 * 512), dc)
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    fn mbc3_time(&self) -> (u64, bool) {
-        (0, false)
+        ((secs % (86400 * 512)) as u64, dc)
     }
 
     fn mbc3_write(addr_space: &mut AddressSpace, addr: u16, mut val: u8) {
@@ -329,9 +323,8 @@ impl Cartridge {
 
             0x6000 => {
                 /* TODO: Stricter latching handling */
-                #[cfg(not(target_arch = "wasm32"))]
                 if val != 0 {
-                    c.rtc_latched = Some(SystemTime::now());
+                    c.rtc_latched = Some(SystemTime::now().into());
                 }
             },
 
@@ -399,10 +392,7 @@ impl Cartridge {
                     tsecs += 86400 * 512;
                 }
 
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    rtc.set_at = SystemTime::now();
-                }
+                rtc.set_at = SystemTime::now().into();
 
                 rtc.secs = (tsecs % 60) as u8;
                 rtc.mins = ((tsecs / 60) % 60) as u8;
@@ -410,14 +400,24 @@ impl Cartridge {
                 rtc.days = ((tsecs / 86400) & 0x3ff) as u16;
                 rtc.halted = halted;
 
+                let pos = c.extram_size * 8192;
+                let raw_rtc_data = bincode::serialize(&rtc).unwrap();
+
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    let pos = c.extram_size * 8192;
                     addr_space.extram_file.seek(SeekFrom::Start(pos as u64))
                                           .unwrap();
-
-                    let raw_rtc_data = bincode::serialize(&rtc).unwrap();
                     addr_space.extram_file.write_all(&raw_rtc_data).unwrap();
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    let len = raw_rtc_data.len();
+
+                    if addr_space.full_extram.len() < pos + len {
+                        addr_space.full_extram.resize(pos + len, 0);
+                    }
+                    addr_space.full_extram[pos..(pos + len)].clone_from_slice(&raw_rtc_data);
+                    addr_space.extram_dirty = true;
                 }
 
                 if addr_space.extram_bank == Some(-1isize as usize) {
@@ -595,60 +595,6 @@ pub fn load_rom(addr_space: &mut AddressSpace) -> SystemParams {
              if rtc { "+RTC" } else { "" },
              if rumble { "+RUMBLE" } else { "" });
 
-
-    /* FIXME: Can you get this statically? */
-    let rtc_data_length =
-        bincode::serialize(&RamRTCData {
-            #[cfg(not(target_arch = "wasm32"))]
-            set_at: SystemTime::UNIX_EPOCH,
-
-            secs: 0,
-            mins: 0,
-            hours: 0,
-            days: 0,
-            halted: true,
-        }).unwrap().len();
-
-    let mut extram_len = extram_size * 8192;
-    if rtc {
-        extram_len += rtc_data_length;
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        if cfg!(target_os = "linux") {
-            addr_space.extram_file.set_len(extram_len as u64).unwrap();
-        } else {
-            let cur_len = addr_space.extram_file.seek(SeekFrom::End(0)).unwrap();
-
-            if cur_len < extram_len as u64 {
-                let mut empty = Vec::<u8>::new();
-                empty.resize(extram_len - cur_len as usize, 0u8);
-                addr_space.extram_file.write_all(&empty).unwrap();
-            }
-        }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    addr_space.full_extram.resize(extram_len, 0);
-
-    let rtc_data = if rtc {
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                let pos = extram_size * 8192;
-                addr_space.extram_file.seek(SeekFrom::Start(pos as u64)).unwrap();
-            }
-
-            let mut raw_rtc_data = Vec::<u8>::new();
-            raw_rtc_data.resize(rtc_data_length, 0u8);
-            #[cfg(not(target_arch = "wasm32"))]
-            addr_space.extram_file.read_exact(&mut raw_rtc_data).unwrap();
-
-            Some(bincode::deserialize::<RamRTCData>(&raw_rtc_data).unwrap())
-        } else {
-            None
-        };
-
     addr_space.cartridge = Cartridge {
         mbc: mbc,
         extram: extram || batt,
@@ -660,8 +606,7 @@ pub fn load_rom(addr_space: &mut AddressSpace) -> SystemParams {
         mbc1_ram_banking: false,
         mbc3_hidden_ram_rw: false,
         mbc3_clock_sel: 0,
-        rtc: rtc_data,
-        #[cfg(not(target_arch = "wasm32"))]
+        rtc: Default::default(), // initialized below
         rtc_latched: None,
 
         rumble_state: false,
@@ -671,10 +616,80 @@ pub fn load_rom(addr_space: &mut AddressSpace) -> SystemParams {
 
     Cartridge::init_map(addr_space);
 
+
+    /* FIXME: Can you get this statically? */
+    let rtc_data_length = bincode::serialize(&RamRTCData::default()).unwrap().len();
+
+    let mut extram_len = extram_size * 8192;
+    if rtc {
+        extram_len += rtc_data_length;
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        #[cfg(target_os = "linux")]
+        addr_space.extram_file.set_len(extram_len as u64).unwrap();
+
+        #[cfg(not(target_os = "linux"))]
+        {
+            let cur_len = addr_space.extram_file.seek(SeekFrom::End(0)).unwrap();
+
+            if cur_len < extram_len as u64 {
+                let mut empty = Vec::<u8>::new();
+                empty.resize(extram_len - cur_len as usize, 0u8);
+                addr_space.extram_file.write_all(&empty).unwrap();
+                addr_space.full_extram.resize(extram_len, 0);
+            }
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    addr_space.full_extram.resize(extram_len, 0);
+
+    addr_space.cartridge.rtc = if rtc {
+            let pos = extram_size * 8192;
+            let mut raw_rtc_data = Vec::<u8>::new();
+            raw_rtc_data.resize(rtc_data_length, 0u8);
+
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                addr_space.extram_file.seek(SeekFrom::Start(pos as u64)).unwrap();
+                addr_space.extram_file.read_exact(&mut raw_rtc_data).unwrap();
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                raw_rtc_data.clone_from_slice(&addr_space.full_extram[pos..(pos+rtc_data_length)]);
+            }
+
+            Some(bincode::deserialize::<RamRTCData>(&raw_rtc_data).unwrap())
+        } else {
+            None
+        };
+
     SystemParams {
         cgb: gbc_mode,
         sgb: sgb_mode,
         cartridge_name: cart_name,
         serial_conn_param: SerialConnParam::default(),
+    }
+}
+
+impl From<SystemTime> for SerSystemTime {
+    fn from(st: SystemTime) -> Self {
+        let elapsed = st.duration_since(SystemTime::UNIX_EPOCH).unwrap();
+        SerSystemTime {
+            tv_sec: elapsed.as_secs() as i64,
+            tv_nsec: elapsed.subsec_nanos() as i64,
+        }
+    }
+}
+
+impl SerSystemTime {
+    fn secs_since(&self, since: &Self) -> i64 {
+        if self.tv_nsec >= since.tv_nsec {
+            self.tv_sec - since.tv_sec
+        } else {
+            self.tv_sec - since.tv_sec - 1
+        }
     }
 }

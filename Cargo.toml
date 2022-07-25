@@ -25,6 +25,7 @@ sdl2_ttf = { git = "https://github.com/XanClic/rust-sdl2_ttf" }
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 base64 = "0.13"
 console_error_panic_hook = { version = "0.1.6" }
+instant = { version = "0.1.12", features = [ "wasm-bindgen" ] }
 wasm-bindgen = "0.2"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.web-sys]
@@ -35,6 +36,7 @@ features = [
     "AudioContext",
     "AudioDestinationNode",
     "CanvasRenderingContext2d",
+    "console",
     "Document",
     "Element",
     "EventListener",
