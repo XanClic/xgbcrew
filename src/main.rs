@@ -1,5 +1,3 @@
-#![feature(box_syntax)]
-
 #[macro_use] extern crate serde_derive;
 #[macro_use] extern crate savestate_derive;
 
@@ -88,16 +86,16 @@ Options:
         ram_path = Some(format!("{}.sav", base_path.as_ref().unwrap()));
     }
 
-    let mut addr_space = box AddressSpace::new(rom_path.as_ref().unwrap(),
-                                               ram_path.as_ref().unwrap());
+    let mut addr_space = Box::new(AddressSpace::new(rom_path.as_ref().unwrap(),
+                                                    ram_path.as_ref().unwrap()));
     let mut sys_params = rom::load_rom(addr_space.as_mut());
     sys_params.serial_conn_param = scp;
 
     let mut ui = UI::new(&sys_params.cartridge_name);
 
-    let system_state = box SystemState::new(addr_space, sys_params, &mut ui);
-    let mut system = box System::new(system_state, ui,
-                                     base_path.take().unwrap());
+    let system_state = Box::new(SystemState::new(addr_space, sys_params, &mut ui));
+    let mut system = Box::new(System::new(system_state, ui,
+                                          base_path.take().unwrap()));
 
     system.main_loop(false);
 }

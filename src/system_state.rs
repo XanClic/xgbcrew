@@ -340,13 +340,13 @@ impl SystemState {
 
             sound_postprocess: false,
 
-            display: box DisplayState::new(),
+            display: Box::new(DisplayState::new()),
             keypad: KeypadState::new(),
             sound: SoundState::new(),
             timer: TimerState::new(),
             serial: SerialState::new(ui, &params.serial_conn_param),
 
-            sgb_state: box SGBState::new(),
+            sgb_state: Box::new(SGBState::new()),
         };
 
         DisplayState::init_system_state(&mut state);

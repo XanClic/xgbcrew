@@ -1,4 +1,3 @@
-#![feature(box_syntax)]
 // FIXME: These two are here because this file is effectively empty on anything but wasm32.  We
 // don't want any messages to occur about this, ideally we wouldn't even build a library on
 // any platform but wasm, but seems like cargo is really really keen on always building src/lib.rs.
@@ -39,14 +38,14 @@ impl XGBCSystem {
     pub fn new(buf: Vec<u8>) -> Self {
         console_error_panic_hook::set_once();
 
-        let mut addr_space = box AddressSpace::new(buf);
+        let mut addr_space = Box::new(AddressSpace::new(buf));
         let mut sys_params = rom::load_rom(addr_space.as_mut());
         sys_params.serial_conn_param = SerialConnParam::Disabled;
 
         let mut ui = UI::new(&sys_params.cartridge_name);
 
-        let system_state = box SystemState::new(addr_space, sys_params, &mut ui);
-        let system = box System::new(system_state, ui, "".into());
+        let system_state = Box::new(SystemState::new(addr_space, sys_params, &mut ui));
+        let system = Box::new(System::new(system_state, ui, "".into()));
 
         XGBCSystem {
             sys: system,
