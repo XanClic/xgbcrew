@@ -50,8 +50,9 @@ macro_rules! handle_single_key_event {
     ($events:expr, $object:expr, $event_name:literal, $down:literal) => {
         let events = $events.clone();
         let handler = Closure::wrap(Box::new(move |event: KeyboardEvent| {
-            if let Some(evt) = Self::translate_key_event(event, $down) {
+            if let Some(evt) = Self::translate_key_event(&event, $down) {
                 events.borrow_mut().push_back(evt);
+                event.prevent_default();
             }
         }) as Box<dyn FnMut(_)>);
         $object.add_event_listener_with_callback($event_name, handler.as_ref().unchecked_ref()).unwrap();
@@ -126,7 +127,7 @@ impl WebUI {
         }
     }
 
-    fn translate_key_event(event: KeyboardEvent, down: bool) -> Option<UIEvent> {
+    fn translate_key_event(event: &KeyboardEvent, down: bool) -> Option<UIEvent> {
         let ui_sc = match event.key().as_ref() {
             "p" | "P" => UIScancode::P,
             "x" | "X" => UIScancode::X,
