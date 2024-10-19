@@ -5,6 +5,7 @@ pub mod helpers;
 use std::fs;
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::{Read, Seek, SeekFrom, Write};
+use base64::prelude::*;
 
 use crate::rom::Cartridge;
 use savestate::SaveState;
@@ -147,7 +148,7 @@ impl AddressSpace {
         let ls = window.local_storage().ok()??;
 
         let sav = ls.get_item(&self.cartridge.name).ok()??;
-        self.full_extram = base64::decode(sav).ok()?;
+        self.full_extram = BASE64_STANDARD.decode(sav).ok()?;
 
         Some(())
     }
@@ -161,7 +162,7 @@ impl AddressSpace {
         let window = web_sys::window()?;
         let ls = window.local_storage().ok()??;
 
-        let sav = base64::encode(&self.full_extram);
+        let sav = BASE64_STANDARD.encode(&self.full_extram);
         ls.set_item(&self.cartridge.name, &sav).ok()?;
 
         Some(())

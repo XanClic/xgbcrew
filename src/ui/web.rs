@@ -355,7 +355,7 @@ impl WebWorkletAudio {
             self.vblank_single_channel_buf.resize(samples, 0.0);
         }
         for i in 0..samples {
-            self.vblank_single_channel_buf[i] = self.vblank_buf[(i * self.channels)];
+            self.vblank_single_channel_buf[i] = self.vblank_buf[i * self.channels];
         }
 
         let ipos = self.ptrs[0] as usize;
