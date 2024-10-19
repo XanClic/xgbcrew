@@ -865,7 +865,6 @@ pub fn lcd_write(sys_state: &mut SystemState, addr: u16, mut val: u8) {
                             (d.bg_palette15[i] & 0xff00) |
                             (val as u16);
                     } else {
-                        val &= 0x7f;
                         d.bg_palette15[i] =
                             (d.bg_palette15[i] & 0x00ff) |
                             ((val as u16) << 8);
@@ -911,7 +910,6 @@ pub fn lcd_write(sys_state: &mut SystemState, addr: u16, mut val: u8) {
                             (d.obj_palette15[i] & 0xff00) |
                             (val as u16);
                     } else {
-                        val &= 0x7f;
                         d.obj_palette15[i] =
                             (d.obj_palette15[i] & 0x00ff) |
                             ((val as u16) << 8);
