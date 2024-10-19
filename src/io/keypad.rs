@@ -1,6 +1,6 @@
 use crate::address_space::AddressSpace;
 use crate::io::IOSpace;
-use crate::io::int::IRQ;
+use crate::io::int::Irq;
 use crate::sgb::sgb_pulse;
 use crate::system_state::{IOReg, SystemState};
 
@@ -90,7 +90,7 @@ impl KeypadState {
 
         if self.mask != 0 && old_p1 & !new_p1 & 0xf != 0 {
             let iflag = addr_space.io_get_reg(IOReg::IF);
-            addr_space.io_set_reg(IOReg::IF, iflag | (IRQ::Input as u8));
+            addr_space.io_set_reg(IOReg::IF, iflag | (Irq::Input as u8));
         }
     }
 

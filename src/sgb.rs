@@ -8,7 +8,7 @@ enum TransferDest {
     TilesLow,
     TilesHigh,
     BorderMapPalette,
-    OAM,
+    Oam,
     Sound,
     AttributeFiles,
     Data,
@@ -102,7 +102,7 @@ fn sgb_attr_blk(sys_state: &mut SystemState) {
     let mut i = 2;
     for _ in 0..s.raw_packets[0][1] {
         sys_state.display.sgb_attr_blk(
-            s.raw_packets[(i + 0) / 16][(i + 0) % 16],
+            s.raw_packets[i / 16][i % 16],
             s.raw_packets[(i + 1) / 16][(i + 1) % 16],
             s.raw_packets[(i + 2) / 16][(i + 2) % 16] as usize,
             s.raw_packets[(i + 3) / 16][(i + 3) % 16] as usize,
@@ -135,8 +135,7 @@ fn sgb_pal_set(sys_state: &mut SystemState) {
 
         for shade in 0..4 {
             let fpi = (idx * 4 + shade) * 2;
-            let rgb15 = s.pal_data[fpi + 0] as u16 |
-                      ((s.pal_data[fpi + 1] as u16) << 8);
+            let rgb15 = s.pal_data[fpi] as u16 | ((s.pal_data[fpi + 1] as u16) << 8);
 
             if shade == 0 && pal_bi == 0 {
                 col0 = rgb15;
@@ -267,7 +266,7 @@ fn sgb_buf_transfer(obuf: &mut [u8], ibuf: &[u8], start_i: usize) {
             for ry in 0..8 {
                 let y = by + ry;
 
-                let p = (ibuf[y * 160 + x + 0],
+                let p = (ibuf[y * 160 + x],
                          ibuf[y * 160 + x + 1],
                          ibuf[y * 160 + x + 2],
                          ibuf[y * 160 + x + 3],
@@ -283,7 +282,7 @@ fn sgb_buf_transfer(obuf: &mut [u8], ibuf: &[u8], start_i: usize) {
                           ((p.4 & 1) << 3) |
                           ((p.5 & 1) << 2) |
                           ((p.6 & 1) << 1) |
-                          ((p.7 & 1) << 0);
+                           (p.7 & 1);
                 i += 1;
 
                 obuf[i] = ((p.0 & 2) << 6) |
@@ -292,7 +291,7 @@ fn sgb_buf_transfer(obuf: &mut [u8], ibuf: &[u8], start_i: usize) {
                           ((p.3 & 2) << 3) |
                           ((p.4 & 2) << 2) |
                           ((p.5 & 2) << 1) |
-                          ((p.6 & 2) << 0) |
+                           (p.6 & 2) |
                           ((p.7 & 2) >> 1);
                 i += 1;
 
@@ -341,7 +340,7 @@ fn sgb_construct_border_image(sys_state: &mut SystemState) {
     let mut border_pal = [0u32; 8 * 16];
     for pi in 0..(4 * 16) {
         let rgb15 =
-            s.border_map_palette[0x800 + pi * 2 + 0] as u16 |
+            s.border_map_palette[0x800 + pi * 2] as u16 |
             ((s.border_map_palette[0x800 + pi * 2 + 1] as u16) << 8);
 
         border_pal[pi + 4 * 16] =
@@ -368,7 +367,7 @@ fn sgb_construct_border_image(sys_state: &mut SystemState) {
         for x in 0..256 {
             let map_i = (y / 8) * 32 + x / 8;
             let map =
-                s.border_map_palette[map_i * 2 + 0] as usize |
+                s.border_map_palette[map_i * 2] as usize |
                 ((s.border_map_palette[map_i * 2 + 1] as usize) << 8);
 
             let tile_i = map & 0xff;
@@ -389,8 +388,8 @@ fn sgb_construct_border_image(sys_state: &mut SystemState) {
                 };
 
             let shade_planed =
-                ((s.tiles[tile_i * 32 + ym * 2 +  0] >> xm) & 0x1,
-                 (s.tiles[tile_i * 32 + ym * 2 +  1] >> xm) & 0x1,
+                ((s.tiles[tile_i * 32 + ym * 2] >> xm) & 0x1,
+                 (s.tiles[tile_i * 32 + ym * 2 + 1] >> xm) & 0x1,
                  (s.tiles[tile_i * 32 + ym * 2 + 16] >> xm) & 0x1,
                  (s.tiles[tile_i * 32 + ym * 2 + 17] >> xm) & 0x1);
 

@@ -72,6 +72,7 @@ impl AddressSpace {
                             .read(true)
                             .write(true)
                             .create(true)
+                            .truncate(false)
                             .open(ram_path).unwrap(),
 
             cartridge: Cartridge::new(),
@@ -84,7 +85,7 @@ impl AddressSpace {
 
             full_vram: unsafe {
                 #[allow(deref_nullptr)]
-                &mut *(std::ptr::null_mut() as *mut [u8; 0x4000])
+                &mut *std::ptr::null_mut()
             },
 
             rom0_mapped: None,
@@ -125,7 +126,7 @@ impl AddressSpace {
 
         if zero {
             unsafe {
-                libc::memset(res as *mut libc::c_void, 0, size);
+                libc::memset(res, 0, size);
             }
         }
 
@@ -410,17 +411,17 @@ impl AddressSpace {
         let slice = unsafe {
             std::slice::from_raw_parts(mapping, size)
         };
-        stream.write_all(&slice).unwrap();
+        stream.write_all(slice).unwrap();
         Self::munmap(mapping as usize, size);
     }
 
     fn import_shm<T: std::io::Read>(fd: RawFd, size: usize, stream: &mut T) {
         let mapping = Self::mmap(0, fd, 0, size, libc::PROT_WRITE,
                                  libc::MAP_SHARED, false) as *mut u8;
-        let mut slice = unsafe {
+        let slice = unsafe {
             std::slice::from_raw_parts_mut(mapping, size)
         };
-        stream.read_exact(&mut slice).unwrap();
+        stream.read_exact(slice).unwrap();
         Self::munmap(mapping as usize, size);
     }
 

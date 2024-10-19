@@ -173,9 +173,7 @@ impl SC {
         received[1] = 0xae;
         received[2] = 0x15;
         received[3] = 0x01;
-        for i in 24..65 {
-            received[i] = 0;
-        }
+        received[24..65].fill(0);
         dev.send_feature_report(&received).unwrap();
 
         dev.get_feature_report(&mut received).unwrap();
@@ -218,8 +216,8 @@ impl SC {
 
         Ok(Some(Self {
             events: events_r,
-            rumble_on: rumble_on,
-            rumble_off: rumble_off,
+            rumble_on,
+            rumble_off,
             event_thread: evt_thr,
         }))
     }
@@ -284,10 +282,10 @@ impl SCThread {
         binding!(is, bm, Action, UIScancode::CAction);
 
         let obj = Self {
-            dev: dev,
-            events: events,
-            rumble_on: rumble_on,
-            rumble_off: rumble_off,
+            dev,
+            events,
+            rumble_on,
+            rumble_off,
             rumble_state: false,
             input_state: is,
             button_map: bm,

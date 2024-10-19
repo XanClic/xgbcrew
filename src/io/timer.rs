@@ -1,5 +1,5 @@
 use crate::io::IOSpace;
-use crate::io::int::IRQ;
+use crate::io::int::Irq;
 use crate::system_state::{IOReg, SystemState};
 
 
@@ -45,7 +45,7 @@ pub fn add_cycles(sys_state: &mut SystemState, count: u32) {
 
             if overflow {
                 let iflag = addr_space.io_get_reg(IOReg::IF);
-                addr_space.io_set_reg(IOReg::IF, iflag | (IRQ::Timer as u8));
+                addr_space.io_set_reg(IOReg::IF, iflag | (Irq::Timer as u8));
 
                 res = addr_space.io_get_reg(IOReg::TMA);
             }

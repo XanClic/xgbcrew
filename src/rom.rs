@@ -1,3 +1,4 @@
+#[cfg(not(target_arch = "wasm32"))]
 use std::io::{Read, Seek, SeekFrom, Write};
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::SystemTime;
@@ -197,11 +198,7 @@ impl Cartridge {
             },
 
             0x6000 => {
-                if val & 0x01 != 0 {
-                    c.mbc1_ram_banking = true;
-                } else {
-                    c.mbc1_ram_banking = false;
-                }
+                c.mbc1_ram_banking = val & 0x01 != 0;
             },
 
             0xa000 => (),
@@ -282,11 +279,11 @@ impl Cartridge {
             },
 
             0x4000 => {
-                if val >= 0x08 && val <= 0x0c && c.rtc.is_none() {
-                    val = val & 0x03;
+                if (0x08..=0x0c).contains(&val) && c.rtc.is_none() {
+                    val &= 0x03;
                 }
 
-                if val >= 0x08 && val <= 0x0c {
+                if (0x08..=0x0c).contains(&val) {
                     let (secs, dc) = c.mbc3_time();
                     let halted = c.rtc.as_ref().unwrap().halted;
 
@@ -505,9 +502,7 @@ pub fn load_rom(addr_space: &mut AddressSpace) -> SystemParams {
 
     let mut raw_rda: [u8; 0x50] = [0u8; 0x50];
     #[cfg(target_arch = "wasm32")]
-    for i in 0..0x50 {
-        raw_rda[i] = addr_space.full_rom[0x100 + i];
-    }
+    raw_rda[0x0..0x50].copy_from_slice(&addr_space.full_rom[0x100..0x150]);
     #[cfg(not(target_arch = "wasm32"))]
     addr_space.rom_file.read_exact(&mut raw_rda).unwrap();
 
@@ -597,12 +592,12 @@ pub fn load_rom(addr_space: &mut AddressSpace) -> SystemParams {
              if rumble { "+RUMBLE" } else { "" });
 
     addr_space.cartridge = Cartridge {
-        mbc: mbc,
+        mbc,
         extram: extram || batt,
-        rumble: rumble,
+        rumble,
 
-        rom_size: rom_size,
-        extram_size: extram_size,
+        rom_size,
+        extram_size,
 
         mbc1_ram_banking: false,
         mbc3_hidden_ram_rw: false,
@@ -649,8 +644,7 @@ pub fn load_rom(addr_space: &mut AddressSpace) -> SystemParams {
 
     addr_space.cartridge.rtc = if rtc {
             let pos = extram_size * 8192;
-            let mut raw_rtc_data = Vec::<u8>::new();
-            raw_rtc_data.resize(rtc_data_length, 0u8);
+            let mut raw_rtc_data = vec![0u8; rtc_data_length];
 
             #[cfg(not(target_arch = "wasm32"))]
             {

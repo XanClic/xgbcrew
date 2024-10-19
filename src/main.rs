@@ -54,18 +54,16 @@ fn main() {
                 eprintln!("Unrecognized option --{}", &cap[1]);
                 exit(1);
             }
-        } else {
-            if rom_path.is_none() {
-                rom_path = Some(arg.clone());
+        } else if rom_path.is_none() {
+            rom_path = Some(arg.clone());
 
-                let regex = Regex::new(r"\.?[^./]*$").unwrap();
-                base_path = Some(String::from(regex.replace(arg, "")));
-            } else if ram_path.is_none() {
-                ram_path = Some(arg.clone());
-            } else {
-                eprintln!("Unrecognized parameter {}", arg);
-                exit(1);
-            }
+            let regex = Regex::new(r"\.?[^./]*$").unwrap();
+            base_path = Some(String::from(regex.replace(arg, "")));
+        } else if ram_path.is_none() {
+            ram_path = Some(arg.clone());
+        } else {
+            eprintln!("Unrecognized parameter {}", arg);
+            exit(1);
         }
     }
 

@@ -1,5 +1,5 @@
 use crate::address_space::AddressSpace;
-use crate::cpu::CPU;
+use crate::cpu::Cpu;
 use crate::io;
 use crate::io::keypad::KeypadState;
 use crate::io::lcd::DisplayState;
@@ -12,6 +12,7 @@ use crate::ui::{UI, UIAction, UIEvent};
 
 const SAVE_STATE_VERSION: u64 = 8;
 
+#[allow(clippy::upper_case_acronyms)]
 #[allow(dead_code)]
 pub enum IOReg {
     P1      = 0x00,
@@ -100,7 +101,7 @@ pub struct SystemParams {
 pub struct System {
     #[savestate(ref)]
     pub sys_state: Box<SystemState>,
-    pub cpu: CPU,
+    pub cpu: Cpu,
 
     #[savestate(skip)]
     pub ui: UI,
@@ -150,17 +151,17 @@ impl System {
     pub fn new(mut sys_state: Box<SystemState>, mut ui: UI, base_path: String)
         -> Self
     {
-        let cpu = CPU::new(sys_state.cgb, sys_state.sgb);
+        let cpu = Cpu::new(sys_state.cgb, sys_state.sgb);
 
         ui.setup_audio(sys_state.sound.get_audio_params());
 
         Self {
-            sys_state: sys_state,
-            cpu: cpu,
+            sys_state,
+            cpu,
 
-            ui: ui,
+            ui,
 
-            base_path: base_path,
+            base_path,
 
             paused: false,
             extram_dirtying: false,
@@ -329,7 +330,7 @@ impl SystemState {
         -> Self
     {
         let mut state = Self {
-            addr_space: addr_space,
+            addr_space,
 
             cgb: params.cgb,
             sgb: params.sgb && !params.cgb,

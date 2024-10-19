@@ -10,41 +10,47 @@ macro_rules! mem {
     );
 
     ($ss:expr; $v:expr => $a:expr) => {
-        unsafe {
-            let mem_addr = AS_BASE + ($a as usize);
+        {
+            let system_state: &mut $crate::system_state::SystemState = $ss;
+            let gb_addr: u16 = $a;
+            let value: u8 = $v;
 
-            if $a < 0x8000u16 {
-                /* ROM */
-                $ss.addr_space.rom_write($a, $v);
-            } else if $a < 0xe000u16 {
-                if $a < 0xa000u16 || $a >= 0xc000 {
-                    /* Video/Working RAM */
-                    *(mem_addr as *mut u8) = $v;
-                } else {
-                    /* External RAM */
-                    if $ss.addr_space.extram_rw {
-                        *(mem_addr as *mut u8) = $v;
+            unsafe {
+                let mem_addr = AS_BASE + (gb_addr as usize);
+
+                if gb_addr < 0x8000 {
+                    /* ROM */
+                    system_state.addr_space.rom_write(gb_addr, value);
+                } else if gb_addr < 0xe000 {
+                    if !(0xa000..0xc000).contains(&gb_addr) {
+                        /* Video/Working RAM */
+                        *(mem_addr as *mut u8) = value;
                     } else {
-                        $ss.addr_space.extram_write($a, $v);
+                        /* External RAM */
+                        if system_state.addr_space.extram_rw {
+                            *(mem_addr as *mut u8) = value;
+                        } else {
+                            system_state.addr_space.extram_write(gb_addr, value);
+                        }
                     }
-                }
-            } else if $a >= 0xff80u16 && $a < 0xffffu16 {
-                /* High WRAM and stack */
-                *((mem_addr + 0x1000) as *mut u8) = $v;
-            } else if $a >= 0xfea0u16 {
-                if $a >= 0xff00u16 {
-                    /* I/O */
-                    io_write($ss, ($a) - 0xff00, $v);
+                } else if (0xff80..0xffff).contains(&gb_addr) {
+                    /* High WRAM and stack */
+                    *((mem_addr + 0x1000) as *mut u8) = value;
+                } else if gb_addr >= 0xfea0 {
+                    if gb_addr >= 0xff00 {
+                        /* I/O */
+                        io_write(system_state, gb_addr - 0xff00, value);
+                    } else {
+                        /* Illegal to access, mirror WRAM */
+                        *((mem_addr - 0x2000) as *mut u8) = value;
+                    }
+                } else if gb_addr >= 0xfe00 {
+                    /* OAM */
+                    *((mem_addr + 0x1000) as *mut u8) = value;
                 } else {
                     /* Illegal to access, mirror WRAM */
-                    *((mem_addr - 0x2000) as *mut u8) = $v;
+                    *((mem_addr - 0x2000) as *mut u8) = value;
                 }
-            } else if $a >= 0xfe00u16 {
-                /* OAM */
-                *((mem_addr + 0x1000) as *mut u8) = $v;
-            } else {
-                /* Illegal to access, mirror WRAM */
-                *((mem_addr - 0x2000) as *mut u8) = $v;
             }
         }
     };
@@ -54,29 +60,34 @@ macro_rules! mem {
     );
 
     ($ss:expr; $a:expr) => {
-        unsafe {
-            let mem_addr = AS_BASE + ($a as usize);
+        {
+            let system_state: &mut $crate::system_state::SystemState = $ss;
+            let gb_addr: u16 = $a;
 
-            if $a < 0xe000u16 {
-                /* Normal AS */
-                *(mem_addr as *const u8)
-            } else if $a >= 0xff80u16 && $a < 0xffffu16 {
-                /* High WRAM and stack */
-                *((mem_addr + 0x1000) as *const u8)
-            } else if $a >= 0xfea0u16 {
-                if $a >= 0xff00u16 {
-                    /* I/O */
-                    io_read($ss, $a - 0xff00)
+            unsafe {
+                let mem_addr = AS_BASE + (gb_addr as usize);
+
+                if gb_addr < 0xe000 {
+                    /* Normal AS */
+                    *(mem_addr as *const u8)
+                } else if (0xff80..0xffff).contains(&gb_addr) {
+                    /* High WRAM and stack */
+                    *((mem_addr + 0x1000) as *const u8)
+                } else if gb_addr >= 0xfea0 {
+                    if gb_addr >= 0xff00 {
+                        /* I/O */
+                        io_read(system_state, gb_addr - 0xff00)
+                    } else {
+                        /* Illegal to access, mirror WRAM */
+                        *((mem_addr - 0x2000) as *const u8)
+                    }
+                } else if gb_addr >= 0xfe00 {
+                    /* OAM */
+                    *((mem_addr + 0x1000) as *const u8)
                 } else {
                     /* Illegal to access, mirror WRAM */
                     *((mem_addr - 0x2000) as *const u8)
                 }
-            } else if $a >= 0xfe00u16 {
-                /* OAM */
-                *((mem_addr + 0x1000) as *const u8)
-            } else {
-                /* Illegal to access, mirror WRAM */
-                *((mem_addr - 0x2000) as *const u8)
             }
         }
     };
@@ -98,38 +109,44 @@ macro_rules! mem {
     );
 
     ($ss:expr; $v:expr => $a:expr) => {
-        unsafe {
-            if $a < 0x8000u16 {
-                /* ROM */
-                $ss.addr_space.rom_write($a, $v);
-            } else if $a < 0xe000u16 {
-                if $a >= 0xc000u16 {
-                    /* Working RAM */
-                    $ss.addr_space.wram_write($a, $v);
-                } else if $a < 0xa000u16 {
-                    /* Video RAM */
-                    $ss.addr_space.vram_write($a, $v);
-                } else {
-                    /* External RAM */
-                    $ss.addr_space.extram_write($a, $v);
-                }
-            } else if $a >= 0xff80u16 && $a < 0xffffu16 {
-                /* High WRAM and stack */
-                $ss.addr_space.hram_write($a, $v);
-            } else if $a >= 0xfea0u16 {
-                if $a >= 0xff00u16 {
-                    /* I/O */
-                    io_write($ss, ($a) - 0xff00, $v);
+        {
+            let system_state: &mut $crate::system_state::SystemState = $ss;
+            let gb_addr: u16 = $a;
+            let value: u8 = $v;
+
+            unsafe {
+                if gb_addr < 0x8000 {
+                    /* ROM */
+                    system_state.addr_space.rom_write(gb_addr, value);
+                } else if gb_addr < 0xe000 {
+                    if gb_addr >= 0xc000 {
+                        /* Working RAM */
+                        system_state.addr_space.wram_write(gb_addr, value);
+                    } else if gb_addr < 0xa000 {
+                        /* Video RAM */
+                        system_state.addr_space.vram_write(gb_addr, value);
+                    } else {
+                        /* External RAM */
+                        system_state.addr_space.extram_write(gb_addr, value);
+                    }
+                } else if (0xff80..0xffff).contains(&gb_addr) {
+                    /* High WRAM and stack */
+                    system_state.addr_space.hram_write(gb_addr, value);
+                } else if gb_addr >= 0xfea0 {
+                    if gb_addr >= 0xff00 {
+                        /* I/O */
+                        io_write(system_state, gb_addr - 0xff00, value);
+                    } else {
+                        /* Illegal to access, mirror WRAM */
+                        system_state.addr_space.wram_write(gb_addr - 0x2000, value);
+                    }
+                } else if gb_addr >= 0xfe00 {
+                    /* OAM */
+                    system_state.addr_space.hram_write(gb_addr, value);
                 } else {
                     /* Illegal to access, mirror WRAM */
-                    $ss.addr_space.wram_write($a - 0x2000, $v);
+                    system_state.addr_space.wram_write(gb_addr - 0x2000, value);
                 }
-            } else if $a >= 0xfe00u16 {
-                /* OAM */
-                $ss.addr_space.hram_write($a, $v);
-            } else {
-                /* Illegal to access, mirror WRAM */
-                $ss.addr_space.wram_write($a - 0x2000, $v);
             }
         }
     };
@@ -139,38 +156,43 @@ macro_rules! mem {
     );
 
     ($ss:expr; $a:expr) => {
-        unsafe {
-            if $a < 0x8000u16 {
-                /* ROM */
-                $ss.addr_space.rom_read($a)
-            } else if $a < 0xe000u16 {
-                if $a >= 0xc000u16 {
-                    /* Working RAM */
-                    $ss.addr_space.wram_read($a)
-                } else if $a < 0xa000u16 {
-                    /* Video RAM */
-                    $ss.addr_space.vram_read($a)
-                } else {
-                    /* External RAM */
-                    $ss.addr_space.extram_read($a)
-                }
-            } else if $a >= 0xff80u16 && $a < 0xffffu16 {
-                /* High WRAM and stack */
-                $ss.addr_space.hram_read($a)
-            } else if $a >= 0xfea0u16 {
-                if $a >= 0xff00u16 {
-                    /* I/O */
-                    io_read($ss, $a - 0xff00)
+        {
+            let system_state: &mut $crate::system_state::SystemState = $ss;
+            let gb_addr: u16 = $a;
+
+            unsafe {
+                if gb_addr < 0x8000 {
+                    /* ROM */
+                    system_state.addr_space.rom_read(gb_addr)
+                } else if gb_addr < 0xe000 {
+                    if gb_addr >= 0xc000 {
+                        /* Working RAM */
+                        system_state.addr_space.wram_read(gb_addr)
+                    } else if gb_addr < 0xa000 {
+                        /* Video RAM */
+                        system_state.addr_space.vram_read(gb_addr)
+                    } else {
+                        /* External RAM */
+                        system_state.addr_space.extram_read(gb_addr)
+                    }
+                } else if (0xff80..0xffff).contains(&gb_addr) {
+                    /* High WRAM and stack */
+                    system_state.addr_space.hram_read(gb_addr)
+                } else if gb_addr >= 0xfea0 {
+                    if gb_addr >= 0xff00 {
+                        /* I/O */
+                        io_read(system_state, gb_addr - 0xff00)
+                    } else {
+                        /* Illegal to access, mirror WRAM */
+                        system_state.addr_space.wram_read(gb_addr - 0x2000)
+                    }
+                } else if gb_addr >= 0xfe00 {
+                    /* OAM */
+                    system_state.addr_space.hram_read(gb_addr)
                 } else {
                     /* Illegal to access, mirror WRAM */
-                    $ss.addr_space.wram_read($a - 0x2000)
+                    system_state.addr_space.wram_read(gb_addr - 0x2000)
                 }
-            } else if $a >= 0xfe00u16 {
-                /* OAM */
-                $ss.addr_space.hram_read($a)
-            } else {
-                /* Illegal to access, mirror WRAM */
-                $ss.addr_space.wram_read($a - 0x2000)
             }
         }
     };
@@ -205,10 +227,14 @@ macro_rules! regs16_split {
     };
 
     ($cpu:ident, $hi:ident, $lo:ident, $v:expr) => {
-        /* Requires little endian */
-        unsafe {
+        {
+            let value: u16 = $v;
             let ptr: *mut u8 = &mut regs8![$cpu.$lo];
-            *(ptr as *mut u16) = $v
+
+            /* Requires little endian */
+            unsafe {
+                *(ptr as *mut u16) = value
+            }
         }
     };
 }

@@ -4,7 +4,7 @@ use std::sync::mpsc::Sender;
 use crate::ui::{AudioOutputParams, UIEvent, UIScancode};
 
 
-pub struct SDLUI {
+pub struct SdlUi {
     sdl_audio: sdl2::AudioSubsystem,
     sdl_evt_pump: sdl2::EventPump,
 
@@ -27,7 +27,7 @@ pub struct SDLUI {
     audio_dev: Option<sdl2::audio::AudioDevice<AudioOutput>>,
 }
 
-impl SDLUI {
+impl SdlUi {
     pub fn new() -> Self {
         let sdl = sdl2::init().unwrap();
 
@@ -63,10 +63,10 @@ impl SDLUI {
             sdl_ttf: sdl2_ttf::init().unwrap(),
 
             wnd_cvs: cvs,
-            lcd_txt: lcd_txt,
+            lcd_txt,
             lcd_rect: sdl2::rect::Rect::new(0, 0, 160, 144),
             sgb_border: false,
-            sgb_border_txt: sgb_border_txt,
+            sgb_border_txt,
             border_rect: sdl2::rect::Rect::new(0, 0, 160, 144),
 
             font: None,
@@ -302,13 +302,7 @@ impl SDLUI {
                 scancode: Some(scancode),
                 keymod: _,
                 repeat: false,
-            } => {
-                if let Some(ui_sc) = Self::sdl_sc_to_ui_sc(scancode) {
-                    Some(UIEvent::Key { key: ui_sc, down: true })
-                } else {
-                    None
-                }
-            },
+            } => Self::sdl_sc_to_ui_sc(scancode).map(|ui_sc| UIEvent::Key { key: ui_sc, down: true }),
 
             sdl2::event::Event::KeyUp {
                 timestamp: _,
@@ -317,13 +311,7 @@ impl SDLUI {
                 scancode: Some(scancode),
                 keymod: _,
                 repeat: _,
-            } => {
-                if let Some(ui_sc) = Self::sdl_sc_to_ui_sc(scancode) {
-                    Some(UIEvent::Key { key: ui_sc, down: false })
-                } else {
-                    None
-                }
-            },
+            } => Self::sdl_sc_to_ui_sc(scancode).map(|ui_sc| UIEvent::Key { key: ui_sc, down: false }),
 
             sdl2::event::Event::Window {
                 timestamp: _,

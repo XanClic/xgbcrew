@@ -3,7 +3,7 @@
 use crate::{mem, regs, regs8, regs16, regs16_split};
 #[cfg(target_os = "linux")]
 use crate::address_space::AS_BASE;
-use crate::cpu::CPU;
+use crate::cpu::Cpu;
 use crate::io::io_read;
 use crate::system_state::SystemState;
 
@@ -137,7 +137,7 @@ fn ioreg_name(reg: u8) -> String {
     }
 }
 
-fn disasm_prefix_0x10(sys_state: &mut SystemState, cpu: &CPU) -> String {
+fn disasm_prefix_0x10(sys_state: &mut SystemState, cpu: &Cpu) -> String {
     let op = mem![sys_state; cpu.pc.wrapping_add(1)];
 
     String::from(
@@ -148,7 +148,7 @@ fn disasm_prefix_0x10(sys_state: &mut SystemState, cpu: &CPU) -> String {
     )
 }
 
-fn disasm_prefix_0xcb(sys_state: &mut SystemState, cpu: &CPU) -> String {
+fn disasm_prefix_0xcb(sys_state: &mut SystemState, cpu: &Cpu) -> String {
     let op = mem![sys_state; cpu.pc.wrapping_add(1)];
     let r8_op = op & 0x07;
     let bit = (op & 0x38) >> 3;
@@ -179,7 +179,7 @@ fn disasm_prefix_0xcb(sys_state: &mut SystemState, cpu: &CPU) -> String {
     }
 }
 
-fn disasm_block_misc_lo(sys_state: &mut SystemState, cpu: &CPU, op: u8)
+fn disasm_block_misc_lo(sys_state: &mut SystemState, cpu: &Cpu, op: u8)
     -> String
 {
     let n8 = peek8(sys_state, cpu.pc, 1);
@@ -249,18 +249,18 @@ fn disasm_block_misc_lo(sys_state: &mut SystemState, cpu: &CPU, op: u8)
     }
 }
 
-fn disasm_block_mov(_sys_state: &mut SystemState, _cpu: &CPU, op: u8) -> String {
+fn disasm_block_mov(_sys_state: &mut SystemState, _cpu: &Cpu, op: u8) -> String {
     if op == 0x76 {
         String::from("halt")
     } else {
-        let r8_op_src = (op >> 0) & 0x07;
+        let r8_op_src = op & 0x07;
         let r8_op_dst = (op >> 3) & 0x07;
 
         format!("ld     {}, {}", r8(r8_op_dst), r8(r8_op_src))
     }
 }
 
-fn disasm_block_alu(_sys_state: &mut SystemState, _cpu: &CPU, op: u8) -> String {
+fn disasm_block_alu(_sys_state: &mut SystemState, _cpu: &Cpu, op: u8) -> String {
     let r8_op = op & 0x07;
 
     match op & 0x38 {
@@ -277,7 +277,7 @@ fn disasm_block_alu(_sys_state: &mut SystemState, _cpu: &CPU, op: u8) -> String 
     }
 }
 
-fn disasm_block_misc_hi(sys_state: &mut SystemState, cpu: &CPU, op: u8)
+fn disasm_block_misc_hi(sys_state: &mut SystemState, cpu: &Cpu, op: u8)
     -> String
 {
     let n8 = peek8(sys_state, cpu.pc, 1);
@@ -386,7 +386,7 @@ fn disasm_block_misc_hi(sys_state: &mut SystemState, cpu: &CPU, op: u8)
     }
 }
 
-pub fn disassemble(sys_state: &mut SystemState, cpu: &CPU) -> String {
+pub fn disassemble(sys_state: &mut SystemState, cpu: &Cpu) -> String {
     let op = mem![sys_state; cpu.pc];
 
     match op & 0xc0 {

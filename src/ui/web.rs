@@ -38,7 +38,7 @@ pub struct WebWorkletAudio {
     channels: usize,
 }
 
-pub struct WebUI {
+pub struct WebUi {
     events: Rc<RefCell<LinkedList<UIEvent>>>,
     audio: Option<WebWorkletAudio>,
     video: CanvasRenderingContext2d,
@@ -87,7 +87,7 @@ macro_rules! handle_button_event {
 }
 
 
-impl WebUI {
+impl WebUi {
     pub fn new() -> Self {
         let window = web_sys::window().unwrap();
         let document = window.document().unwrap();
@@ -119,7 +119,7 @@ impl WebUI {
         handle_button_event!(events, window, "btn-select", UIScancode::Backspace);
         handle_button_event!(events, window, "btn-start", UIScancode::Return);
 
-        WebUI {
+        WebUi {
             events,
             audio: None,
             video: video_context,
@@ -236,7 +236,7 @@ impl WebBufferAudio {
     fn new(params: AudioOutputParams) -> Option<Self> {
         let ctx = AudioContext::new().ok()?;
         let source = ctx.create_buffer_source().ok()?;
-        let buf_len = (params.freq as u32) * 1;
+        let buf_len = params.freq as u32;
         // FIXME: Support params.channels
         let buffer = ctx.create_buffer(1, buf_len, params.freq as f32).ok()?;
 

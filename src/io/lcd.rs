@@ -1,7 +1,7 @@
 #[cfg(target_arch = "wasm32")]
 use crate::address_space::AddressSpace;
 use crate::io::{hdma_copy_16b, IOSpace, io_write};
-use crate::io::int::IRQ;
+use crate::io::int::Irq;
 use crate::sgb::sgb_buf_done;
 use crate::system_state::{IOReg, SystemState};
 
@@ -59,6 +59,27 @@ pub struct DisplayState {
     sgb_freeze: [u32; 160 * 144],
 }
 
+#[repr(u8)]
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum Submode {
+    HBlank = 0,
+    VBlank = 1,
+    OamOnly = 2,
+    OamVram = 3,
+}
+
+impl From<u8> for Submode {
+    fn from(val: u8) -> Self {
+        match val & 3 {
+            x if x == Submode::HBlank as u8 => Submode::HBlank,
+            x if x == Submode::VBlank as u8 => Submode::VBlank,
+            x if x == Submode::OamOnly as u8 => Submode::OamOnly,
+            x if x == Submode::OamVram as u8 => Submode::OamVram,
+
+            _ => unreachable!(),
+        }
+    }
+}
 
 impl DisplayState {
     pub fn new() -> Self {
@@ -173,26 +194,9 @@ impl DisplayState {
                 _ => unreachable!(),
             };
 
-        let inner =
-            if let Some(s) = inner_s {
-                Some(((pal >> s) & 0x3) * 4)
-            } else {
-                None
-            };
-
-        let outer =
-            if let Some(s) = outer_s {
-                Some(((pal >> s) & 0x3) * 4)
-            } else {
-                None
-            };
-
-        let border =
-            if let Some(s) = border_s {
-                Some(((pal >> s) & 0x3) * 4)
-            } else {
-                None
-            };
+        let inner = inner_s.map(|s| ((pal >> s) & 0x3) * 4);
+        let outer = outer_s.map(|s| ((pal >> s) & 0x3) * 4);
+        let border = border_s.map(|s| ((pal >> s) & 0x3) * 4);
 
         let mut i = 0;
         for y in 0..18 {
@@ -205,10 +209,8 @@ impl DisplayState {
                     if let Some(p) = inner {
                         self.sgb_pal_bi[i] = p;
                     }
-                } else {
-                    if let Some(p) = border {
-                        self.sgb_pal_bi[i] = p;
-                    }
+                } else if let Some(p) = border {
+                    self.sgb_pal_bi[i] = p;
                 }
 
                 i += 1;
@@ -245,14 +247,15 @@ fn fetch_tile_obj_data(full_vram: &[u8; 0x4000], tile_data_ofs: usize,
     -> (u8, u8)
 {
     if flags & (1 << 6) == 0 {
-        (full_vram[tile_data_ofs + ry * 2 + 0],
+        (full_vram[tile_data_ofs + ry * 2],
          full_vram[tile_data_ofs + ry * 2 + 1])
     } else {
-        (full_vram[tile_data_ofs + (height - 1 - ry) * 2 + 0],
+        (full_vram[tile_data_ofs + (height - 1 - ry) * 2],
          full_vram[tile_data_ofs + (height - 1 - ry) * 2 + 1])
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn get_tile_data_and_pal(full_vram: &[u8; 0x4000], tile_map: usize,
                          tile_data: usize, tile_data_signed: bool, flags: u8,
                          tile: usize, ry: usize, height: usize, cgb: bool)
@@ -342,8 +345,8 @@ fn draw_bg_line(sys_state: &mut SystemState,
             }
 
             if sys_state.sgb {
-                pal_bi = d.sgb_pal_bi[(screen_line as usize / 8) * 20 +
-                                      screen_x as usize / 8] as usize;
+                let pixel_bi = (screen_line as usize / 8) * 20 + screen_x / 8;
+                pal_bi = d.sgb_pal_bi[pixel_bi] as usize;
             }
 
             let val = get_tile_obj_pixel(data, rx, flags);
@@ -352,8 +355,8 @@ fn draw_bg_line(sys_state: &mut SystemState,
             bg_prio[screen_x] = get_tile_prio(val, flags, d.obj_prio);
 
             if d.filling_for_sgb_buf {
-                d.for_sgb_buf[screen_line as usize * 160 + screen_x as usize] =
-                    pal_i as u8;
+                let pixel_i = screen_line as usize * 160 + screen_x;
+                d.for_sgb_buf[pixel_i] = pal_i as u8;
             }
         }
 
@@ -407,8 +410,8 @@ fn draw_wnd_line(sys_state: &mut SystemState,
             }
 
             if sys_state.sgb {
-                pal_bi = d.sgb_pal_bi[(screen_line as usize / 8) * 20 +
-                                      screen_x as usize / 8] as usize;
+                let pixel_bi = (screen_line as usize / 8) * 20 + screen_x / 8;
+                pal_bi = d.sgb_pal_bi[pixel_bi] as usize;
             }
 
             let val = get_tile_obj_pixel(data, rx, flags);
@@ -417,8 +420,8 @@ fn draw_wnd_line(sys_state: &mut SystemState,
             bg_prio[screen_x] = get_tile_prio(val, flags, d.obj_prio);
 
             if d.filling_for_sgb_buf {
-                d.for_sgb_buf[screen_line as usize * 160 + screen_x as usize] =
-                    pal_i as u8;
+                let pixel_i = screen_line as usize * 160 + screen_x;
+                d.for_sgb_buf[pixel_i] = pal_i as u8;
             }
         }
 
@@ -526,20 +529,18 @@ fn draw_obj_line(sys_state: &mut SystemState, screen_line: u8,
             }
 
             if sys_state.sgb {
-                pal_bi = d.sgb_pal_bi[(screen_line as usize / 8) * 20 +
-                                      screen_x as usize / 8] as usize;
+                let pixel_bi = (screen_line as usize / 8) * 20 + screen_x / 8;
+                pal_bi = d.sgb_pal_bi[pixel_bi] as usize;
             }
 
             let val = get_tile_obj_pixel(data, rx as u8, flags);
-            if val != 0 && bg_prio[screen_x] < 2 {
-                if flags & (1 << 7) == 0 || bg_prio[screen_x] < 1 {
-                    let pal_i = d.obj_palette_mapping[val] as usize;
-                    pixels[screen_x] = d.obj_palette[pal_bi + pal_i];
+            if val != 0 && bg_prio[screen_x] < 2 && (flags & (1 << 7) == 0 || bg_prio[screen_x] < 1) {
+                let pal_i = d.obj_palette_mapping[val] as usize;
+                pixels[screen_x] = d.obj_palette[pal_bi + pal_i];
 
-                    if d.filling_for_sgb_buf {
-                        d.for_sgb_buf[screen_line as usize * 160 +
-                                      screen_x as usize] = pal_i as u8;
-                    }
+                if d.filling_for_sgb_buf {
+                    let pixel_i = screen_line as usize * 160 + screen_x;
+                    d.for_sgb_buf[pixel_i] = pal_i as u8;
                 }
             }
         }
@@ -565,8 +566,7 @@ fn draw_line(sys_state: &mut SystemState, line: u8) {
     }
 
     let abs_line = line.wrapping_add(sy);
-    let window_active = sys_state.display.wnd_enabled &&
-                        wx >= 7 && wx <= 166 && wy <= line;
+    let window_active = sys_state.display.wnd_enabled && (7..=166).contains(&wx) && wy <= line;
 
     if !sys_state.display.bg_enabled {
         for p in pixels {
@@ -586,16 +586,16 @@ fn draw_line(sys_state: &mut SystemState, line: u8) {
 }
 
 
-fn stat_mode_transition(sys_state: &mut SystemState, ly: u8, from: u8, to: u8) {
+fn stat_mode_transition(sys_state: &mut SystemState, ly: u8, from: Submode, to: Submode) {
     let d = &mut sys_state.display;
     let addr_space = &mut sys_state.addr_space;
 
-    assert!((ly > 143) == (to == 1));
+    assert!((ly > 143) == (to == Submode::VBlank));
 
     let mut stat = addr_space.io_get_reg(IOReg::STAT);
     let hdma5 = addr_space.io_get_reg(IOReg::HDMA5);
 
-    stat = (stat & !7) | to;
+    stat = (stat & !7) | to as u8;
     if ly == addr_space.io_get_reg(IOReg::LYC) {
         stat |= 1 << 2;
     }
@@ -606,10 +606,10 @@ fn stat_mode_transition(sys_state: &mut SystemState, ly: u8, from: u8, to: u8) {
     /* Care must be taken to only generate each interrupt on the
      * event's leading edge */
     if stat & 0b01000100 == 0b01000100 /* LYC match */ &&
-       (to == 2 || to == 1) /* First submodes per line */
+       (to == Submode::VBlank || to == Submode::OamOnly) /* First submodes per line */
     {
         let iflag = addr_space.io_get_reg(IOReg::IF);
-        addr_space.io_set_reg(IOReg::IF, iflag | (IRQ::LCDC as u8));
+        addr_space.io_set_reg(IOReg::IF, iflag | (Irq::Lcdc as u8));
     }
 
     if to != from {
@@ -618,13 +618,12 @@ fn stat_mode_transition(sys_state: &mut SystemState, ly: u8, from: u8, to: u8) {
            stat & 0b00001011 == 0b00001000 /* Mode 0 */
         {
             let iflag = addr_space.io_get_reg(IOReg::IF);
-            addr_space.io_set_reg(IOReg::IF, iflag | (IRQ::LCDC as u8));
+            addr_space.io_set_reg(IOReg::IF, iflag | (Irq::Lcdc as u8));
         }
 
-        if to == 1 {
-            /* Entered VBlank */
+        if to == Submode::VBlank {
             let iflag = addr_space.io_get_reg(IOReg::IF);
-            addr_space.io_set_reg(IOReg::IF, iflag | (IRQ::VBlank as u8));
+            addr_space.io_set_reg(IOReg::IF, iflag | (Irq::VBlank as u8));
 
             sys_state.vblanked = true;
 
@@ -662,9 +661,9 @@ fn stat_mode_transition(sys_state: &mut SystemState, ly: u8, from: u8, to: u8) {
         }
     }
 
-    if to == 3 {
+    if to == Submode::OamVram {
         draw_line(sys_state, ly);
-    } else if to == 0 && hdma5 & 0x80 == 0 {
+    } else if to == Submode::HBlank && hdma5 & 0x80 == 0 {
         hdma_copy_16b(sys_state);
     }
 }
@@ -679,52 +678,55 @@ pub fn add_cycles(sys_state: &mut SystemState, cycles: u32) {
     let mut ly = sys_state.io_get_reg(IOReg::LY);
 
     loop {
-        let submode = sys_state.io_get_reg(IOReg::STAT) & 3;
+        use Submode::*;
 
-        if submode == 1 {
-            if line_timer >= 228 {
-                ly += 1;
-                if ly < 154 {
-                    /* VBlank -> VBlank */
-                    stat_mode_transition(sys_state, ly, submode, 1);
+        match sys_state.io_get_reg(IOReg::STAT).into() {
+            VBlank => {
+                if line_timer >= 228 {
+                    ly += 1;
+                    if ly < 154 {
+                        stat_mode_transition(sys_state, ly, VBlank, VBlank);
+                    } else {
+                        ly = 0;
+                        stat_mode_transition(sys_state, ly, VBlank, OamOnly);
+                    }
+                    line_timer -= 228;
                 } else {
-                    /* VBlank -> OAM-only */
-                    ly = 0;
-                    stat_mode_transition(sys_state, ly, submode, 2);
+                    break;
                 }
-                line_timer -= 228;
-            } else {
-                break;
             }
-        } else if submode == 2 {
-            if line_timer >= 40 {
-                /* OAM-only -> OAM+VRAM */
-                stat_mode_transition(sys_state, ly, submode, 3);
-                line_timer -= 40;
-            } else {
-                break;
-            }
-        } else if submode == 3 {
-            if line_timer >= 86 {
-                /* OAM+VRAM -> HBlank */
-                stat_mode_transition(sys_state, ly, submode, 0);
-                line_timer -= 86;
-            } else {
-                break;
-            }
-        } else /* if submode == 4 */ {
-            if line_timer >= 102 {
-                ly += 1;
-                if ly < 144 {
-                    /* HBlank -> OAM-only */
-                    stat_mode_transition(sys_state, ly, submode, 2);
+
+            OamOnly => {
+                if line_timer >= 40 {
+                    stat_mode_transition(sys_state, ly, OamOnly, OamVram);
+                    line_timer -= 40;
                 } else {
-                    /* HBlank -> VBlank */
-                    stat_mode_transition(sys_state, ly, submode, 1);
+                    break;
                 }
-                line_timer -= 102;
-            } else {
-                break;
+            }
+
+            OamVram => {
+                if line_timer >= 86 {
+                    /* OAM+VRAM -> HBlank */
+                    stat_mode_transition(sys_state, ly, OamVram, HBlank);
+                    line_timer -= 86;
+                } else {
+                    break;
+                }
+            }
+
+            HBlank => {
+                if line_timer >= 102 {
+                    ly += 1;
+                    if ly < 144 {
+                        stat_mode_transition(sys_state, ly, HBlank, OamOnly);
+                    } else {
+                        stat_mode_transition(sys_state, ly, HBlank, VBlank);
+                    }
+                    line_timer -= 102;
+                } else {
+                    break;
+                }
             }
         }
     }
@@ -743,7 +745,7 @@ pub fn rgb15_to_rgb24(rgb15: u16) -> u32 {
     let g8 = ((g * 255) / 31) as u32;
     let b8 = ((b * 255) / 31) as u32;
 
-    0xff000000 | (r8 << 0) | (g8 << 8) | (b8 << 16)
+    0xff000000 | r8 | (g8 << 8) | (b8 << 16)
 }
 
 pub fn lcd_write(sys_state: &mut SystemState, addr: u16, mut val: u8) {
@@ -775,8 +777,8 @@ pub fn lcd_write(sys_state: &mut SystemState, addr: u16, mut val: u8) {
             d.obj_height    = if val & (1 << 2) != 0 { 16 } else { 8 };
 
             if !d.enabled {
-                stat_mode_transition(sys_state, 0,
-                                     sys_state.io_get_reg(IOReg::STAT) & 3, 0);
+                let submode = sys_state.io_get_reg(IOReg::STAT).into();
+                stat_mode_transition(sys_state, 0, submode, Submode::HBlank);
             }
         },
 
@@ -798,7 +800,7 @@ pub fn lcd_write(sys_state: &mut SystemState, addr: u16, mut val: u8) {
 
                 if stat & 0b01000100 == 0b01000100 {
                     let iflag = addr_space.io_get_reg(IOReg::IF);
-                    addr_space.io_set_reg(IOReg::IF, iflag | (IRQ::LCDC as u8));
+                    addr_space.io_set_reg(IOReg::IF, iflag | (Irq::Lcdc as u8));
                 }
             }
         },
@@ -807,7 +809,7 @@ pub fn lcd_write(sys_state: &mut SystemState, addr: u16, mut val: u8) {
             if !sys_state.cgb {
                 let d = &mut sys_state.display;
 
-                d.bg_palette_mapping[0] = (val >> 0) & 0x3;
+                d.bg_palette_mapping[0] = val & 0x3;
                 d.bg_palette_mapping[1] = (val >> 2) & 0x3;
                 d.bg_palette_mapping[2] = (val >> 4) & 0x3;
                 d.bg_palette_mapping[3] = (val >> 6) & 0x3;
@@ -818,7 +820,7 @@ pub fn lcd_write(sys_state: &mut SystemState, addr: u16, mut val: u8) {
             if !sys_state.cgb {
                 let d = &mut sys_state.display;
 
-                d.obj_palette_mapping[0] = (val >> 0) & 0x3;
+                d.obj_palette_mapping[0] = val & 0x3;
                 d.obj_palette_mapping[1] = (val >> 2) & 0x3;
                 d.obj_palette_mapping[2] = (val >> 4) & 0x3;
                 d.obj_palette_mapping[3] = (val >> 6) & 0x3;
@@ -829,7 +831,7 @@ pub fn lcd_write(sys_state: &mut SystemState, addr: u16, mut val: u8) {
             if !sys_state.cgb {
                 let d = &mut sys_state.display;
 
-                d.obj_palette_mapping[4] = (val >> 0) & 0x3;
+                d.obj_palette_mapping[4] = val & 0x3;
                 d.obj_palette_mapping[5] = (val >> 2) & 0x3;
                 d.obj_palette_mapping[6] = (val >> 4) & 0x3;
                 d.obj_palette_mapping[7] = (val >> 6) & 0x3;

@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 
 use crate::address_space::AddressSpace;
 use crate::io::IOSpace;
-use crate::io::int::IRQ;
+use crate::io::int::Irq;
 use crate::system_state::{IOReg, SystemState};
 use crate::ui::UI;
 
@@ -59,36 +59,15 @@ impl SerialState {
                                                  libc::PROT_WRITE,
                                                  libc::MAP_SHARED, false);
 
-                    let remote_sb = unsafe {
-                        std::mem::transmute::<*mut u8,
-                                              &'static mut AtomicU8>(
-                            (shm as *mut u8).offset(0xf01)
-                        )
-                    };
-
-                    let remote_sc = unsafe {
-                        std::mem::transmute::<*mut u8,
-                                              &'static mut AtomicU8>(
-                            (shm as *mut u8).offset(0xf02)
-                        )
-                    };
-
-                    let remote_if = unsafe {
-                        std::mem::transmute::<*mut u8,
-                                              &'static mut AtomicU8>(
-                            (shm as *mut u8).offset(0xf0f)
-                        )
-                    };
+                    let remote_sb = unsafe { AtomicU8::from_ptr((shm as *mut u8).offset(0xf01)) };
+                    let remote_sc = unsafe { AtomicU8::from_ptr((shm as *mut u8).offset(0xf02)) };
+                    let remote_if = unsafe { AtomicU8::from_ptr((shm as *mut u8).offset(0xf0f)) };
 
                     return Some(SerialState {
                         con: None,
                         server: None,
 
-                        shm: Some(SerialSHM {
-                            remote_sb: remote_sb,
-                            remote_sc: remote_sc,
-                            remote_if: remote_if,
-                        }),
+                        shm: Some(SerialSHM { remote_sb, remote_sc, remote_if }),
 
                         cycles_rem: None,
                     });
@@ -138,8 +117,8 @@ impl SerialState {
         }
 
         Some(SerialState {
-            con: con,
-            server: server,
+            con,
+            server,
 
             shm: None,
 
@@ -199,7 +178,7 @@ impl SerialState {
                 addr_space.io_set_reg(IOReg::SC, sc & !0x80);
 
                 let iflag = addr_space.io_get_reg(IOReg::IF);
-                addr_space.io_set_reg(IOReg::IF, iflag | (IRQ::Serial as u8));
+                addr_space.io_set_reg(IOReg::IF, iflag | (Irq::Serial as u8));
             } else if recv_count.is_none() {
                 /* TODO: Print this */
                 self.conn_down();
@@ -215,7 +194,7 @@ impl SerialState {
                     let rsb = shm.remote_sb.swap(sb, Ordering::Relaxed);
                     shm.remote_sc.store(rsc & 0x02, Ordering::Release);
 
-                    shm.remote_if.fetch_or(IRQ::Serial as u8,
+                    shm.remote_if.fetch_or(Irq::Serial as u8,
                                            Ordering::AcqRel);
 
                     addr_space.io_set_reg(IOReg::SB, rsb);
@@ -229,7 +208,7 @@ impl SerialState {
 
                 let iflag = addr_space.io_get_reg(IOReg::IF);
                 addr_space.io_set_reg(IOReg::IF,
-                                      iflag | (IRQ::Serial as u8));
+                                      iflag | (Irq::Serial as u8));
             }
         }
     }

@@ -84,7 +84,7 @@ struct ToneSweep {
 impl ToneSweep {
     fn new(channel: usize) -> Self {
         let mut ts = Self {
-            channel: channel,
+            channel,
             time: 0.0,
             enabled: false,
 
@@ -213,17 +213,21 @@ impl ToneSweep {
         if self.env_enabled {
             self.env_counter += 1.0;
             if self.env_counter >= self.env_len {
-                if self.env_amplify {
-                    if self.vol > 14.5 {
-                        self.env_enabled = false;
-                    } else {
-                        self.vol += 1.0;
+                match self.env_amplify {
+                    true => {
+                        if self.vol <= 14.5 {
+                            self.vol += 1.0;
+                        } else {
+                            self.env_enabled = false;
+                        }
                     }
-                } else {
-                    if self.vol < 0.5 {
-                        self.env_enabled = false;
-                    } else {
-                        self.vol -= 1.0;
+
+                    false => {
+                        if self.vol >= 0.5 {
+                            self.vol -= 1.0;
+                        } else {
+                            self.env_enabled = false;
+                        }
                     }
                 }
 
@@ -285,7 +289,7 @@ struct Wave {
 impl Wave {
     fn new(channel: usize) -> Self {
         Self {
-            channel: channel,
+            channel,
             enabled: false,
             soft_stopped: false,
 
@@ -444,7 +448,7 @@ struct Noise {
 impl Noise {
     fn new(channel: usize) -> Self {
         Self {
-            channel: channel,
+            channel,
             enabled: false,
 
             nrx1: 0xff,
@@ -562,17 +566,21 @@ impl Noise {
         if self.env_enabled {
             self.env_counter += 1.0;
             if self.env_counter >= self.env_len {
-                if self.env_amplify {
-                    if self.vol > 14.5 {
-                        self.env_enabled = false;
-                    } else {
-                        self.vol += 1.0;
+                match self.env_amplify {
+                    true => {
+                        if self.vol <= 14.5 {
+                            self.vol += 1.0;
+                        } else {
+                            self.env_enabled = false;
+                        }
                     }
-                } else {
-                    if self.vol < 0.5 {
-                        self.env_enabled = false;
-                    } else {
-                        self.vol -= 1.0;
+
+                    false => {
+                        if self.vol >= 0.5 {
+                            self.vol -= 1.0;
+                        } else {
+                            self.env_enabled = false;
+                        }
                     }
                 }
 
@@ -650,7 +658,7 @@ impl SoundState {
 
         Self {
             outbuf: Arc::new(Mutex::new(outbuf)),
-            intbuf: intbuf,
+            intbuf,
             outbuf_done: rcv,
             outbuf_done_handout: Some(snd),
 
@@ -770,7 +778,7 @@ impl SoundState {
         while self.ibuf_i_cycles >= (2097152.0 / 44100.0) {
             let (l, r) = self.gen_one_frame(addr_space);
 
-            self.intbuf[self.ibuf_i + 0] = l;
+            self.intbuf[self.ibuf_i] = l;
             self.intbuf[self.ibuf_i + 1] = r;
 
             self.ibuf_i_cycles -= 2097152.0 / 44100.0;
@@ -784,9 +792,7 @@ impl SoundState {
                     let mut out_guard = self.outbuf.lock().unwrap();
                     let out = &mut *out_guard;
 
-                    for i in start..end {
-                        out[i] = self.intbuf[i];
-                    }
+                    out[start..end].copy_from_slice(&self.intbuf[start..end]);
                 }
 
                 if self.ibuf_i == self.obuf_i {
@@ -806,7 +812,7 @@ impl SoundState {
         for i in 0..(output.len() / 2) {
             let (l, r) = self.gen_one_frame(addr_space);
 
-            output[i * 2 + 0] = l;
+            output[i * 2] = l;
             output[i * 2 + 1] = r;
         }
     }
@@ -978,7 +984,7 @@ pub fn sound_write(sys_state: &mut SystemState, addr: u16, mut val: u8)
         },
 
         0x24 => {
-            s.shared.lvol = ((val >> 0) & 0x07) as f32;
+            s.shared.lvol = (val & 0x07) as f32;
             s.shared.rvol = ((val >> 4) & 0x07) as f32;
         },
 

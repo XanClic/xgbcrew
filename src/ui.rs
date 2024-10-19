@@ -14,12 +14,12 @@ use crate::io::keypad::KeypadKey;
 use crate::system_state::SystemState;
 
 #[cfg(not(target_arch = "wasm32"))]
-use sdl::SDLUI;
+use sdl::SdlUi;
 #[cfg(not(target_arch = "wasm32"))]
 use sc::SC;
 
 #[cfg(target_arch = "wasm32")]
-use web::WebUI;
+use web::WebUi;
 
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy)]
@@ -75,16 +75,11 @@ pub enum UIScancode {
     CAction,
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Eq, Hash, Clone, Copy)]
 enum UIInputEdge {
+    #[default]
     Down,
     Up,
-}
-
-impl Default for UIInputEdge {
-    fn default() -> Self {
-        UIInputEdge::Down
-    }
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Hash, Clone, Copy)]
@@ -148,12 +143,12 @@ struct KeyboardState {
 
 pub struct UI {
     #[cfg(not(target_arch = "wasm32"))]
-    frontend: SDLUI,
+    frontend: SdlUi,
     #[cfg(not(target_arch = "wasm32"))]
     sc: Option<SC>,
 
     #[cfg(target_arch = "wasm32")]
-    frontend: WebUI,
+    frontend: WebUi,
 
     keyboard_state: KeyboardState,
     fullscreen: bool,
@@ -189,10 +184,10 @@ macro_rules! binding {
 impl UI {
     pub fn new(cart_name: &String) -> Self {
         #[cfg(not(target_arch = "wasm32"))]
-        let mut frontend = SDLUI::new();
+        let mut frontend = SdlUi::new();
 
         #[cfg(target_arch = "wasm32")]
-        let frontend = WebUI::new();
+        let frontend = WebUi::new();
 
         #[cfg(not(target_arch = "wasm32"))]
         let sc = match SC::new() {
@@ -375,7 +370,7 @@ impl UI {
                             alt: self.keyboard_state.alt,
                             control: self.keyboard_state.control,
 
-                            edge: edge,
+                            edge,
                         };
 
                         self.input_map.get(&inp).cloned()

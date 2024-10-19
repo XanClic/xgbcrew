@@ -19,7 +19,7 @@ struct InternalInstruction {
 }
 
 #[derive(SaveState)]
-pub struct CPU {
+pub struct Cpu {
     /* Order here: f, a, c, b, e, d, l, h */
     /* (Indices used in CPU instructions: b, c, d, e, h, l, (none), a) */
     regs8: [u8; 8],
@@ -32,7 +32,7 @@ pub struct CPU {
     internal_insns: Vec<InternalInstruction>,
 }
 
-impl CPU {
+impl Cpu {
     pub fn new(cgb: bool, sgb: bool) -> Self {
         let (a, f, b, c, d, e, h, l) =
             if cgb {
@@ -77,7 +77,7 @@ impl CPU {
                     }
 
                     if !exec_insns.is_empty() {
-                        self.internal_insns.retain(|ref x| x.delay >= 0);
+                        self.internal_insns.retain(|x| x.delay >= 0);
                         for ii in exec_insns {
                             self.exec_int_insn(sys_state, &ii);
                         }
@@ -92,17 +92,15 @@ impl CPU {
              sys_state.io_get_reg(IOReg::IF) & sys_state.io_get_reg(IOReg::IE))
         };
 
-        if ime {
-            if irqs != 0 {
-                let irq = irqs.trailing_zeros() as u16;
+        if ime && irqs != 0 {
+            let irq = irqs.trailing_zeros() as u16;
 
-                sys_state.ints_enabled = false;
-                { insns::push(self, sys_state, self.pc); }
-                self.pc = 0x40 + irq * 8;
+            sys_state.ints_enabled = false;
+            { insns::push(self, sys_state, self.pc); }
+            self.pc = 0x40 + irq * 8;
 
-                let iflag = sys_state.io_get_reg(IOReg::IF);
-                sys_state.io_set_reg(IOReg::IF, iflag & !(1 << irq));
-            }
+            let iflag = sys_state.io_get_reg(IOReg::IF);
+            sys_state.io_set_reg(IOReg::IF, iflag & !(1 << irq));
         }
 
         cycles
@@ -121,9 +119,6 @@ impl CPU {
     }
 
     fn inject_int_insn(&mut self, delay: i8, op: IIOperation) {
-        self.internal_insns.push(InternalInstruction {
-            delay: delay,
-            op: op,
-        });
+        self.internal_insns.push(InternalInstruction { delay, op });
     }
 }

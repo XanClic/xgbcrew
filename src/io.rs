@@ -226,7 +226,7 @@ fn hdma_write(sys_state: &mut SystemState, addr: u16, mut val: u8) {
 
     match addr {
         0x51 => {
-            if val >= 0x80 && val < 0xa0 {
+            if (0x80..0xa0).contains(&val) {
                 val = 0;
             } else if val >= 0xe0 {
                 val -= 0x20;
