@@ -79,6 +79,7 @@ pub struct Cartridge {
     #[savestate(skip_if("version < 4"))]
     pub rumble_state: bool,
 
+    #[allow(unused)]
     #[savestate(skip)]
     pub name: String,
 }

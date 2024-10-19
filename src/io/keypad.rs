@@ -103,15 +103,15 @@ impl KeypadState {
     {
         let line =
             match key {
-                KeypadKey::Right    => (1 << 0),
-                KeypadKey::Left     => (1 << 1),
-                KeypadKey::Up       => (1 << 2),
-                KeypadKey::Down     => (1 << 3),
+                KeypadKey::Right    => 1 << 0,
+                KeypadKey::Left     => 1 << 1,
+                KeypadKey::Up       => 1 << 2,
+                KeypadKey::Down     => 1 << 3,
 
-                KeypadKey::A        => (1 << 4),
-                KeypadKey::B        => (1 << 5),
-                KeypadKey::Select   => (1 << 6),
-                KeypadKey::Start    => (1 << 7),
+                KeypadKey::A        => 1 << 4,
+                KeypadKey::B        => 1 << 5,
+                KeypadKey::Select   => 1 << 6,
+                KeypadKey::Start    => 1 << 7,
             };
 
         if down {
