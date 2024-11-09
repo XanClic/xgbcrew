@@ -1,3 +1,4 @@
+use std::cmp;
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::{channel, Sender, Receiver};
 
@@ -730,18 +731,18 @@ impl SoundState {
         let ch4 = self.ch4.get_sample(addr_space);
 
         let cm = self.shared.channel_mask;
-        let ch1_f = (if cm & (1 << 0) != 0 { ch1 } else { 0.0 },
-                     if cm & (1 << 4) != 0 { ch1 } else { 0.0 });
-        let ch2_f = (if cm & (1 << 1) != 0 { ch2 } else { 0.0 },
-                     if cm & (1 << 5) != 0 { ch2 } else { 0.0 });
+        let ch1_f = (if cm & (1 << 4) != 0 { ch1 } else { 0.0 },
+                     if cm & (1 << 0) != 0 { ch1 } else { 0.0 });
+        let ch2_f = (if cm & (1 << 5) != 0 { ch2 } else { 0.0 },
+                     if cm & (1 << 1) != 0 { ch2 } else { 0.0 });
         let ch3_f = (if self.ch3_l { ch3 } else { 0.0 },
                      if self.ch3_r { ch3 } else { 0.0 });
-        let ch4_f = (if cm & (1 << 3) != 0 { ch4 } else { 0.0 },
-                     if cm & (1 << 7) != 0 { ch4 } else { 0.0 });
+        let ch4_f = (if cm & (1 << 7) != 0 { ch4 } else { 0.0 },
+                     if cm & (1 << 3) != 0 { ch4 } else { 0.0 });
 
         if self.ch3.sample_i == 0 {
-            self.ch3_l = cm & (1 << 2) != 0;
-            self.ch3_r = cm & (1 << 6) != 0;
+            self.ch3_l = cm & (1 << 6) != 0;
+            self.ch3_r = cm & (1 << 2) != 0;
         }
 
         let cht_f = (
@@ -984,8 +985,9 @@ pub fn sound_write(sys_state: &mut SystemState, addr: u16, mut val: u8)
         },
 
         0x24 => {
-            s.shared.lvol = (val & 0x07) as f32;
-            s.shared.rvol = ((val >> 4) & 0x07) as f32;
+            // Never mute
+            s.shared.lvol = (cmp::max((val >> 4) & 0x07, 1)) as f32;
+            s.shared.rvol = (cmp::max(val & 0x07, 1)) as f32;
         },
 
         0x25 => {
