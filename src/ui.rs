@@ -7,10 +7,9 @@ pub mod sdl;
 pub mod web;
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::sync::mpsc::Sender;
 
 use crate::io::keypad::KeypadKey;
+use crate::io::sound::functionality::AudioOutputParams;
 use crate::system_state::SystemState;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -123,15 +122,6 @@ struct UIMap {
 pub enum UIEvent {
     Quit,
     Key { key: UIScancode, down: bool },
-}
-
-pub struct AudioOutputParams {
-    pub freq: usize,
-    pub channels: usize,
-
-    pub buf: Arc<Mutex<Vec<f32>>>,
-    pub buf_step: usize,
-    pub buf_done: Sender<usize>,
 }
 
 struct KeyboardState {

@@ -295,7 +295,10 @@ impl System {
                 #[cfg(target_arch = "wasm32")]
                 {
                     if let Some(buf) = self.ui.get_vblank_sound_buf() {
-                        self.sys_state.sound.fill_outbuf(&mut self.sys_state.addr_space, buf.as_mut_slice());
+                        self.sys_state.sound.fill_outbuf(
+                            self.sys_state.addr_space.as_mut(),
+                            buf.as_mut_slice(),
+                        );
                         self.ui.submit_vblank_sound_buf();
                     }
                 }
@@ -367,7 +370,7 @@ impl SystemState {
 
         io::lcd::add_cycles(self, dcycles);
         #[cfg(not(target_arch = "wasm32"))]
-        self.sound.add_cycles(&mut self.addr_space, dcycles, self.realtime);
+        self.sound.add_cycles(self.addr_space.as_mut(), dcycles, self.realtime);
         io::timer::add_cycles(self, count);
 
         if let Some(serial) = self.serial.as_mut() {

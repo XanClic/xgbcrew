@@ -1,7 +1,8 @@
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
 
-use crate::ui::{AudioOutputParams, UIEvent, UIScancode};
+use crate::io::sound::functionality::AudioOutputParams;
+use crate::ui::{UIEvent, UIScancode};
 
 
 pub struct SdlUi {
