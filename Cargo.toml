@@ -60,3 +60,7 @@ overflow-checks = false
 
 [lib]
 crate-type = ["cdylib"]
+
+[[bin]]
+name = "cry-test"
+path = "src/cry-test.rs"
