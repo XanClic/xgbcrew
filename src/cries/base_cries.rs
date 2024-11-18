@@ -56,25 +56,23 @@ pub(super) const BULBASAUR_BASE: MonCryBase = MonCryBase(
 );
 
 const MIMIKYU_CH5: &[Instruction] = sound_insns! {
-    duty_cycle_pattern 0, 1, 1, 1
-    square_note 20, 15, -5, 1935
-    square_note 20, 5, -5, 1935
-    square_note 10, 0, 0, 0
-    duty_cycle_pattern 0, 2, 0, 1
-    square_note 10, 5, 7, 1895
-    square_note 10, 10, -7, 1895
-    square_note 10, 5, -7, 1895
-    square_note 40, 0, 0, 0
-    square_note 5, 10, -2, 1890
-    square_note 5, 10, -2, 1895
-    square_note 5, 9, -2, 1900
-    square_note 5, 9, -2, 1890
-    duty_cycle_pattern 1, 1, 1, 1
-    square_note 5, 8, -2, 1880
-    square_note 5, 7, -2, 1865
-    square_note 5, 6, -2, 1850
-    square_note 5, 5, -2, 1835
-    square_note 5, 4, -2, 1820
+    duty_cycle_pattern 0, 1, 2, 1
+    pitch_sweep 3, 5
+    square_note 5, 10, -1, 1910
+    pitch_sweep 15, 0
+    square_note 15, 15, 1, 1970
+    square_note 5, 0, 0, 0
+    duty_cycle_pattern 2, 2, 1, 1
+    pitch_sweep 4, 7
+    square_note 15, 10, -1, 1930
+    pitch_sweep 15, 0
+    square_note 15, 15, 1, 1950
+    square_note 30, 0, 0, 0
+    duty_cycle 1
+    pitch_sweep 3, 7
+    square_note 20, 10, 7, 1930
+    pitch_sweep 3, -7
+    square_note 30, 8, 2, 1950
 };
 
 pub(super) const MIMIKYU_BASE: MonCryBase = MonCryBase(
@@ -86,64 +84,73 @@ pub(super) const MIMIKYU_BASE: MonCryBase = MonCryBase(
 
 const LITWICK_CH5: &[Instruction] = sound_insns! {
     duty_cycle_pattern 1, 1, 1, 1
+    pitch_sweep 15, 7
+    square_note 12, 8, -1, 1844
     pitch_sweep 15, -7
-    square_note 2, 10, 8, 1824
-    square_note 2, 12, 8, 1831
-    square_note 2, 15, 8, 1920
-    square_note 2, 9, 8, 1913
-    square_note 4, 7, 8, 1856
-    square_note 4, 5, 8, 1852
-    square_note 8, 3, 8, 1852
-    square_note 3, 4, 8, 1750
-    square_note 3, 7, 8, 1830
-    square_note 3, 5, 8, 1800
-    square_note 3, 3, 8, 1770
+    square_note 12, 15, 1, 1844
+    pitch_sweep 15, 7
+    square_note 10, 3, -1, 1770
+    pitch_sweep 15, 0
+    square_note 10, 5, 0, 1770
+    square_note 10, 3, 0, 1760
+    square_note 10, 2, 0, 1770
+    square_note 5, 1, 0, 1780
+    square_note 10, 1, 0, 1770
+    square_note 5, 1, 1, 1770
 };
 const LITWICK_CH6: &[Instruction] = sound_insns! {
-    duty_cycle_pattern 0, 1, 0, 1
+    duty_cycle_pattern 1, 1, 1, 1
 
-    square_note 1, 5, 1, 1820
-    square_note 1, 8, 1, 1850
-    square_note 1, 5, 1, 1820
-    square_note 1, 8, 1, 1850
+    square_note 2, 1, -1, 1820
+    square_note 1, 2, 2, 1820
 
-    square_note 1, 4, 1, 1820
-    square_note 1, 6, 1, 1850
-    square_note 1, 4, 1, 1820
-    square_note 1, 6, 1, 1850
+    square_note 2, 1, -1, 1820
+    square_note 1, 2, 2, 1820
 
-    square_note 1, 3, 1, 1820
-    square_note 1, 5, 1, 1850
-    square_note 1, 3, 1, 1820
-    square_note 1, 5, 1, 1850
-    square_note 1, 3, 1, 1820
-    square_note 1, 5, 1, 1850
-    square_note 1, 3, 1, 1820
-    square_note 1, 5, 1, 1850
+    square_note 2, 1, -1, 1820
+    square_note 1, 2, 2, 1820
 
-    square_note 1, 2, 1, 1820
-    square_note 1, 4, 1, 1850
-    square_note 1, 2, 1, 1820
-    square_note 1, 4, 1, 1850
-    square_note 1, 2, 1, 1820
-    square_note 1, 4, 1, 1850
-    square_note 1, 2, 1, 1820
-    square_note 1, 4, 1, 1850
+    square_note 2, 1, -1, 1820
+    square_note 1, 2, 2, 1820
 
-    square_note 1, 1, 1, 1820
-    square_note 1, 2, 1, 1850
-    square_note 1, 1, 1, 1820
-    square_note 1, 2, 1, 1850
-    square_note 1, 1, 1, 1820
-    square_note 1, 2, 1, 1850
-    square_note 1, 1, 1, 1820
-    square_note 1, 2, 1, 1850
+    square_note 2, 1, -1, 1820
+    square_note 1, 2, 2, 1820
+
+    square_note 2, 1, -1, 1820
+    square_note 1, 2, 2, 1820
+
+    square_note 2, 1, -1, 1820
+    square_note 1, 2, 2, 1820
+
+    square_note 2, 1, -1, 1820
+    square_note 1, 2, 2, 1820
+
+    square_note 2, 1, -1, 1820
+    square_note 1, 2, 2, 1820
+
+    square_note 2, 1, -1, 1820
+    square_note 1, 2, 2, 1820
+
+    square_note 2, 0, -1, 1820
+    square_note 1, 1, 2, 1820
+
+    square_note 2, 0, -1, 1820
+    square_note 1, 1, 2, 1820
+
+    square_note 2, 0, -1, 1820
+    square_note 1, 1, 2, 1820
+
+    square_note 2, 0, -1, 1820
+    square_note 1, 1, 2, 1820
+
+    square_note 2, 0, -1, 1820
+    square_note 1, 1, 2, 1820
 };
 const LITWICK_CH8: &[Instruction] = sound_insns! {
     noise_note 14, 15, 2, 101
-    noise_note 13, 14, 2, 85
-    noise_note 14, 13, 2, 86
-    noise_note 8, 13, 1, 102
+    noise_note 13, 10, 2, 85
+    noise_note 14, 8, 2, 86
+    noise_note 12, 10, 1, 102
 };
 
 pub(super) const LITWICK_BASE: MonCryBase = MonCryBase(
@@ -154,11 +161,16 @@ pub(super) const LITWICK_BASE: MonCryBase = MonCryBase(
 );
 
 const LAMPENT_CH5: &[Instruction] = sound_insns! {
-    duty_cycle_pattern 1, 1, 1, 1
-    pitch_sweep 15, -7
-    square_note 2, 10, 8, 1824
-    square_note 2, 12, 8, 1831
-    square_note 2, 15, 8, 1920
+    duty_cycle 1
+    pitch_sweep 15, 7
+    square_note 10, 7, 0, 1750
+    pitch_sweep 15, 7
+    square_note 10, 7, -1, 1820
+    pitch_sweep 15, 0
+    square_note 10, 10, -1, 1920
+    duty_cycle_pattern 1, 0, 2, 0
+    square_note 30, 13, -1, 1920
+
     square_note 2, 9, 8, 1913
     square_note 4, 7, 8, 1856
     square_note 4, 5, 8, 1852
@@ -175,14 +187,14 @@ const LAMPENT_CH5: &[Instruction] = sound_insns! {
     square_note 3, 10, -7, 1300
 };
 const LAMPENT_CH8: &[Instruction] = sound_insns! {
-    noise_note 7, 15, 2, 101
-    noise_note 6, 14, 2, 85
-    noise_note 5, 13, 2, 86
-    noise_note 3, 13, 1, 102
-    noise_note 10, 15, 2, 101
-    noise_note 9, 14, 2, 85
-    noise_note 10, 13, 2, 86
-    noise_note 8, 13, 1, 10
+    noise_note 15, 2, 0, 0
+    noise_note 10, 5, -1, 0
+    noise_note 15, 10, 0, 1
+    noise_note 10, 10, 7, 1
+    noise_note 13, 0, 0, 0
+    noise_note 5, 0, -1, 18
+    noise_note 5, 5, 0, 18
+    noise_note 15, 5, 7, 18
 };
 
 pub(super) const LAMPENT_BASE: MonCryBase = MonCryBase(
@@ -193,28 +205,34 @@ pub(super) const LAMPENT_BASE: MonCryBase = MonCryBase(
 );
 
 const CHANDELURE_CH5: &[Instruction] = sound_insns! {
-    duty_cycle_pattern 1, 1, 2, 2
-    pitch_sweep 15, 7
-    square_note 15, 4, 0, 210
-    pitch_sweep 15, 7
-    square_note 15, 4, 0, 300
-    pitch_sweep 15, 7
-    square_note 15, 5, 0, 350
+    duty_cycle_pattern 2, 0, 1, 0
+    pitch_sweep 11, 7
+    square_note 15, 0, -7, 500
+    pitch_sweep 11, 7
+    square_note 15, 3, -7, 700
+    pitch_sweep 11, 5
+    square_note 10, 6, 3, 900
+    pitch_sweep 15, 0
+    duty_cycle_pattern 2, 2, 2, 2
+    square_note 15, 0, -4, 300
+    square_note 10, 5, 0, 300
+    square_note 10, 5, 7, 300
+    square_note 25, 3, 4, 300
 };
 const CHANDELURE_CH6: &[Instruction] = sound_insns! {
-    duty_cycle_pattern 2, 2, 1, 1
-    square_note 7, 4, -7, 1000
-    square_note 7, 8, 7, 1000
-    square_note 7, 12, 7, 999
-    square_note 7, 8, 7, 998
-    square_note 7, 4, 7, 998
+    duty_cycle_pattern 2, 1, 2, 1
+    square_note 15, 4, -7, 2002
+    square_note 15, 8, 0, 2002
+    square_note 15, 8, 7, 2001
+    square_note 15, 4, 7, 2000
+    square_note 15, 2, 1, 2000
 };
 const CHANDELURE_CH8: &[Instruction] = sound_insns! {
-    noise_note 10, 12, 7, 115
-    noise_note 10, 10, 7, 116
-    noise_note 10, 8, 7, 117
-    noise_note 10, 6, -7, 118
-    noise_note 10, 8, -7, 119
+    noise_note 20, 4, -7, 16
+    noise_note 20, 8, 7, 48
+    noise_note 20, 4, -7, 49
+    noise_note 20, 8, 7, 48
+    noise_note 20, 5, 1, 52
 };
 
 pub(super) const CHANDELURE_BASE: MonCryBase = MonCryBase(
@@ -222,6 +240,102 @@ pub(super) const CHANDELURE_BASE: MonCryBase = MonCryBase(
     &CHANDELURE_CH6,
     &[],
     &CHANDELURE_CH8,
+);
+
+const SINISTEA_CH5: &[Instruction] = sound_insns! {
+    duty_cycle_pattern 2, 1, 2, 0
+    pitch_sweep 15, 7
+    square_note 20, 0, -1, 1850
+    pitch_sweep 15, 0
+    square_note 36, 3, 7, 1900
+
+    square_note 30, 4, 4, 500
+};
+const SINISTEA_CH8: &[Instruction] = sound_insns! {
+    noise_note 1, 15, 1, 18
+    noise_note 1, 0, -1, 18
+    noise_note 1, 15, 1, 18
+    noise_note 1, 0, -1, 18
+    noise_note 1, 15, 1, 18
+    noise_note 1, 0, -1, 18
+    noise_note 1, 15, 1, 18
+    noise_note 1, 0, -1, 18
+    noise_note 1, 15, 1, 18
+    noise_note 1, 0, -1, 18
+    noise_note 1, 15, 1, 18
+    noise_note 1, 0, -1, 18
+    noise_note 1, 15, 1, 18
+    noise_note 1, 0, -1, 18
+    noise_note 1, 15, 1, 19
+    noise_note 1, 0, -1, 19
+
+    noise_note 1, 10, 1, 20
+    noise_note 1, 0, -1, 20
+    noise_note 1, 5, 1, 21
+    noise_note 3, 0, -1, 21
+
+    noise_note 1, 8, 3, 22
+    noise_note 1, 0, -3, 22
+    noise_note 1, 8, 3, 22
+    noise_note 1, 0, -4, 22
+    noise_note 1, 6, 4, 22
+    noise_note 1, 0, -4, 22
+    noise_note 1, 6, 4, 22
+    noise_note 1, 0, -5, 22
+    noise_note 1, 5, 5, 22
+    noise_note 1, 0, -5, 22
+    noise_note 1, 5, 5, 22
+    noise_note 1, 0, -5, 22
+    noise_note 1, 4, 5, 22
+    noise_note 1, 0, -6, 22
+    noise_note 1, 4, 6, 22
+    noise_note 1, 0, -6, 22
+    noise_note 1, 3, 6, 22
+    noise_note 1, 0, -6, 22
+    noise_note 1, 3, 6, 22
+    noise_note 1, 0, -7, 22
+    noise_note 1, 2, 7, 22
+    noise_note 1, 0, -7, 22
+    noise_note 1, 2, 7, 22
+    noise_note 1, 0, -7, 22
+    noise_note 1, 1, 7, 22
+    noise_note 1, 0, -7, 22
+    noise_note 1, 1, 7, 22
+};
+
+pub(super) const SINISTEA_BASE: MonCryBase = MonCryBase(
+    &SINISTEA_CH5,
+    &[],
+    &[],
+    &SINISTEA_CH8,
+);
+
+const POLTEAGEIST_CH5: &[Instruction] = sound_insns! {
+    duty_cycle_pattern 2, 1, 2, 0
+    square_note 5, 0, 0, 0
+    square_note 10, 5, -1, 10
+    square_note 10, 15, 1, 10
+
+    square_note 65, 0, 0, 0
+
+    duty_cycle_pattern 2, 1, 2, 1
+    square_note 5, 10, 0, 1700
+    square_note 5, 0, 0, 0
+    square_note 5, 10, 7, 1500
+};
+const POLTEAGEIST_CH8: &[Instruction] = sound_insns! {
+    noise_note 15, 0, -1, 0
+    noise_note 5, 10, -1, 29
+    noise_note 25, 15, 1, 20
+    noise_note 5, 0, -1, 14
+    noise_note 5, 8, -1, 15
+};
+
+pub(super) const POLTEAGEIST_BASE: MonCryBase = MonCryBase(
+    &POLTEAGEIST_CH5,
+    &[],
+    &[],
+    &POLTEAGEIST_CH8,
 );
 
 const VOLTORB_CH5: &[Instruction] = sound_insns! {
