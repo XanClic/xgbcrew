@@ -213,19 +213,19 @@ const CHANDELURE_CH5: &[Instruction] = sound_insns! {
     pitch_sweep 11, 5
     square_note 10, 6, 3, 900
     pitch_sweep 15, 0
-    duty_cycle_pattern 2, 2, 2, 2
-    square_note 15, 0, -4, 300
-    square_note 10, 5, 0, 300
-    square_note 10, 5, 7, 300
-    square_note 25, 3, 4, 300
+    duty_cycle 2
+    square_note 15, 2, -7, 300
+    square_note 15, 5, 7, 200
+    square_note 25, 3, 4, 100
+    square_note 25, 1, 1, 50
 };
 const CHANDELURE_CH6: &[Instruction] = sound_insns! {
     duty_cycle_pattern 2, 1, 2, 1
     square_note 15, 4, -7, 2002
     square_note 15, 8, 0, 2002
     square_note 15, 8, 7, 2001
-    square_note 15, 4, 7, 2000
-    square_note 15, 2, 1, 2000
+    square_note 25, 4, 7, 2000
+    square_note 25, 2, 1, 2000
 };
 const CHANDELURE_CH8: &[Instruction] = sound_insns! {
     noise_note 20, 4, -7, 16
@@ -245,9 +245,9 @@ pub(super) const CHANDELURE_BASE: MonCryBase = MonCryBase(
 const SINISTEA_CH5: &[Instruction] = sound_insns! {
     duty_cycle_pattern 2, 1, 2, 0
     pitch_sweep 15, 7
-    square_note 20, 0, -1, 1850
+    square_note 20, 0, -1, 1950
     pitch_sweep 15, 0
-    square_note 36, 3, 7, 1900
+    square_note 36, 3, 7, 2000
 
     square_note 30, 4, 4, 500
 };
@@ -336,6 +336,339 @@ pub(super) const POLTEAGEIST_BASE: MonCryBase = MonCryBase(
     &[],
     &[],
     &POLTEAGEIST_CH8,
+);
+
+const OCT_0: f32 = 1.00000000000000000000000000000000;
+const OCT_1: f32 = 1.05946309435929530984310531493975;
+const OCT_2: f32 = 1.12246204830937301721860421821475;
+const OCT_3: f32 = 1.18920711500272102689734765590401;
+const OCT_4: f32 = 1.25992104989487319066654436028330;
+const OCT_5: f32 = 1.33483985417003436779737057804596;
+const OCT_6: f32 = 1.41421356237309514547462185873883;
+const OCT_7: f32 = 1.49830707687668152061633008997887;
+const OCT_8: f32 = 1.58740105196819936139718265621923;
+const OCT_9: f32 = 1.68179283050742900407215074665146;
+const OCT_10: f32 = 1.78179743628067854821495075157145;
+const OCT_11: f32 = 1.88774862536338683405290339578642;
+
+const fn note(mut base_freq: f32, mut note: isize) -> u16 {
+    while note < 0 {
+        base_freq /= 2.0;
+        note += 12;
+    }
+    while note >= 12 {
+        base_freq *= 2.0;
+        note -= 12;
+    }
+    let mult = match note {
+        0 => OCT_0,
+        1 => OCT_1,
+        2 => OCT_2,
+        3 => OCT_3,
+        4 => OCT_4,
+        5 => OCT_5,
+        6 => OCT_6,
+        7 => OCT_7,
+        8 => OCT_8,
+        9 => OCT_9,
+        10 => OCT_10,
+        11 => OCT_11,
+        _ => unreachable!(),
+    };
+    (2048.5 - (131072.0 / (base_freq * mult))) as u16
+}
+
+const DRIFBLIM_CH5: &[Instruction] = sound_insns! {
+    duty_cycle_pattern 2, 0, 2, 0
+    pitch_sweep 15, -5
+    square_note 10, 15, 4, note(110.0, 2)
+    square_note 2, 0, 0, 0
+    square_note 6, 15, 4, note(110.0, 0)
+    square_note 4, 0, 0, 0
+    pitch_sweep 15, 6
+    square_note 6, 15, 4, note(110.0, 3)
+    square_note 2, 0, 0, 0
+    pitch_sweep 15, -4
+    square_note 7, 15, 4, note(110.0, 9)
+    square_note 4, 0, 0, 0
+    pitch_sweep 15, 6
+    square_note 6, 15, 4, note(110.0, 5)
+    square_note 3, 0, 0, 0
+    pitch_sweep 15, 0
+    square_note 6, 15, 4, note(110.0, 9)
+    square_note 4, 0, 0, 0
+    square_note 8, 15, 1, note(110.0, 12)
+    square_note 2, 0, 0, 0
+    square_note 8, 7, 1, note(110.0, 14)
+};
+const DRIFBLIM_CH6: &[Instruction] = sound_insns! {
+    duty_cycle_pattern 0, 2, 0, 1
+    square_note 10, 10, 4, note(110.0, 2)
+    square_note 2, 0, 0, 0
+    square_note 6, 10, 4, note(110.0, 0)
+    square_note 4, 0, 0, 0
+    square_note 4, 10, 4, note(110.0, 1)
+    square_note 4, 0, 0, 0
+    square_note 7, 10, 4, note(110.0, 0)
+    square_note 4, 0, 0, 0
+    square_note 3, 10, 4, note(110.0, 9)
+    square_note 2, 0, 0, 0
+    square_note 10, 10, 4, note(110.0, 1)
+    square_note 4, 0, 0, 0
+    square_note 8, 5, 1, note(110.0, 24)
+};
+const DRIFBLIM_CH8: &[Instruction] = sound_insns! {
+    noise_note 60, 8, 0, 127
+    noise_note 1, 2, 1, 15
+    noise_note 1, 0, 0, 0
+    noise_note 1, 2, 1, 15
+    noise_note 1, 0, 0, 0
+    noise_note 1, 2, 1, 15
+    noise_note 1, 0, 0, 0
+    noise_note 1, 2, 1, 15
+    noise_note 1, 0, 0, 0
+    noise_note 1, 2, 1, 15
+    noise_note 1, 0, 0, 0
+    noise_note 1, 1, 1, 15
+    noise_note 1, 0, 0, 0
+    noise_note 1, 1, 1, 15
+    noise_note 1, 0, 0, 0
+    noise_note 1, 1, 1, 15
+    noise_note 1, 0, 0, 0
+    noise_note 1, 1, 1, 15
+    noise_note 1, 0, 0, 0
+    noise_note 1, 1, 1, 15
+    noise_note 1, 0, 0, 0
+};
+
+pub(super) const DRIFBLIM_BASE: MonCryBase = MonCryBase(
+    &DRIFBLIM_CH5,
+    &DRIFBLIM_CH6,
+    &[],
+    &DRIFBLIM_CH8,
+);
+
+const DRIFLOON_CH5: &[Instruction] = sound_insns! {
+    duty_cycle_pattern 1, 2, 1, 2
+    pitch_sweep 1, -7
+    square_note 10, 15, 7, note(880.0, 12)
+    pitch_sweep 4, 7
+    square_note 10, 10, -7, note(880.0, -5)
+    pitch_sweep 15, 7
+    square_note 10, 12, 0, note(880.0, 12)
+    pitch_sweep 15, 0
+    square_note 5, 0, 0, 0
+    duty_cycle 1
+    pitch_sweep 3, 7
+    square_note 8, 2, -4, note(880.0, -5)
+    square_note 2, 0, 0, 0
+    square_note 8, 2, -4, note(880.0, -5)
+    square_note 2, 0, 0, 0
+    duty_cycle_pattern 1, 2, 1, 2
+    pitch_sweep 2, 7
+    square_note 5, 4, -2, note(880.0, 2)
+    pitch_sweep 15, 0
+    square_note 5, 6, 1, note(880.0, 15)
+};
+const DRIFLOON_CH6: &[Instruction] = sound_insns! {
+    duty_cycle_pattern 2, 1, 2, 1
+    square_note 10, 0, -1, note(880.0, -5)
+    square_note 5, 0, 0, 0
+    duty_cycle 3
+    square_note 20, 0, -3, note(880.0, -9)
+};
+
+pub(super) const DRIFLOON_BASE: MonCryBase = MonCryBase(
+    &DRIFLOON_CH5,
+    &DRIFLOON_CH6,
+    &[],
+    &[],
+);
+
+const MISMAGIUS_CH5: &[Instruction] = sound_insns! {
+    duty_cycle_pattern 2, 1, 2, 1
+    pitch_sweep 5, -7
+    square_note 5, 8, 7, note(440.0, 0)
+    pitch_sweep 5, 7
+    square_note 5, 8, -7, note(440.0, 0)
+    pitch_sweep 5, -7
+    square_note 5, 8, 7, note(440.0, 1)
+    pitch_sweep 5, 7
+    square_note 5, 8, -7, note(440.0, 1)
+    pitch_sweep 5, -7
+    square_note 5, 8, 7, note(440.0, 2)
+    pitch_sweep 5, 7
+    square_note 5, 8, -7, note(440.0, 2)
+    pitch_sweep 5, -7
+    square_note 5, 8, 7, note(440.0, 4)
+    pitch_sweep 5, 7
+    square_note 5, 8, -7, note(440.0, 4)
+    pitch_sweep 5, -7
+    square_note 5, 8, 7, note(440.0, 6)
+    pitch_sweep 5, 7
+    square_note 5, 8, -7, note(440.0, 6)
+    square_note 20, 8, 2, note(440.0, 7)
+};
+const MISMAGIUS_CH6: &[Instruction] = sound_insns! {
+    duty_cycle_pattern 2, 1, 2, 1
+    square_note 10, 5, 0, note(220.0, 0)
+    square_note 10, 5, 0, note(220.0, 1)
+    square_note 10, 5, 0, note(220.0, 2)
+    square_note 10, 5, 0, note(220.0, 4)
+    square_note 10, 5, 0, note(220.0, 6)
+    square_note 20, 5, 2, note(220.0, 7)
+};
+
+pub(super) const MISMAGIUS_BASE: MonCryBase = MonCryBase(
+    &MISMAGIUS_CH5,
+    &MISMAGIUS_CH6,
+    &[],
+    &[],
+);
+
+const SANDYGAST_CH5: &[Instruction] = sound_insns! {
+    duty_cycle 2
+    pitch_sweep 2, 5
+    square_note 20, 0, -2, note(70.0, 0)
+    pitch_sweep 15, 0
+    square_note 20, 5, 0, note(110.0, 0)
+    pitch_sweep 2, -5
+    square_note 20, 5, 2, note(110.0, 0)
+};
+const SANDYGAST_CH8: &[Instruction] = sound_insns! {
+    noise_note 8, 10, -5, 66
+    noise_note 8, 11, 2, 65
+    noise_note 8, 10, 0, 65
+    noise_note 24, 10, -2, 64
+    noise_note 8, 15, 2, 64
+    noise_note 8, 12, 2, 65
+    noise_note 24, 10, 4, 66
+    noise_note 24, 5, 4, 67
+};
+
+pub(super) const SANDYGAST_BASE: MonCryBase = MonCryBase(
+    &SANDYGAST_CH5,
+    &[],
+    &[],
+    &SANDYGAST_CH8,
+);
+
+const PALOSSAND_CH5: &[Instruction] = sound_insns! {
+    duty_cycle_pattern 2, 1, 2, 1
+    pitch_sweep 3, 4
+    square_note 20, 5, -2, note(70.0, 0)
+    pitch_sweep 15, 0
+    square_note 20, 10, -4, note(150.0, 0)
+    pitch_sweep 15, -7
+    square_note 20, 12, 0, note(150.0, 0)
+    pitch_sweep 15, 7
+    square_note 20, 12, 0, note(141.0, 0)
+    pitch_sweep 1, -7
+    square_note 20, 12, 3, note(150.0, 0)
+};
+const PALOSSAND_CH8: &[Instruction] = sound_insns! {
+    noise_note 20, 10, 3, 52
+    noise_note 40, 1, -4, 50
+    noise_note 30, 10, -7, 51
+    noise_note 40, 10, 3, 53
+};
+
+pub(super) const PALOSSAND_BASE: MonCryBase = MonCryBase(
+    &PALOSSAND_CH5,
+    &[],
+    &[],
+    &PALOSSAND_CH8,
+);
+
+const ZORUA_CH5: &[Instruction] = sound_insns! {
+    duty_cycle 2
+    pitch_sweep 15, 7
+    square_note 7, 13, -1, 1807
+    square_note 4, 0, 0, 0
+    square_note 7, 13, -1, 1893
+};
+const ZORUA_CH6: &[Instruction] = sound_insns! {
+    duty_cycle_pattern 2, 0, 1, 0
+    square_note 7, 8, -1, 1797
+    square_note 4, 0, 0, 0
+    square_note 7, 8, -1, 1883
+};
+const ZORUA_CH8: &[Instruction] = sound_insns! {
+    noise_note 4, 5, -1, 33
+    noise_note 3, 8, 1, 0
+    noise_note 4, 0, 0, 0
+    noise_note 3, 8, 0, 33
+    noise_note 4, 8, 0, 16
+};
+
+pub(super) const ZORUA_BASE: MonCryBase = MonCryBase(
+    &ZORUA_CH5,
+    &ZORUA_CH6,
+    &[],
+    &ZORUA_CH8,
+);
+
+const ZOROARK_CH5: &[Instruction] = sound_insns! {
+    duty_cycle 2
+    pitch_sweep 8, 7
+    square_note 30, 0, -3, note(60.0, 0)
+    pitch_sweep 15, 0
+    square_note 10, 6, 0, note(70.0, 0)
+    pitch_sweep 2, 7
+    square_note 30, 5, 1, note(70.0, 0)
+};
+const ZOROARK_CH8: &[Instruction] = sound_insns! {
+    noise_note 2, 15, 1, 80
+    noise_note 1, 8, -1, 80
+    noise_note 2, 15, 1, 80
+    noise_note 1, 8, -1, 81
+    noise_note 2, 15, 1, 80
+    noise_note 1, 8, -1, 81
+    noise_note 2, 15, 1, 80
+    noise_note 1, 8, -1, 81
+    noise_note 2, 15, 1, 80
+    noise_note 1, 8, -1, 81
+    noise_note 2, 15, 1, 96
+    noise_note 1, 8, -1, 81
+    noise_note 2, 15, 1, 96
+    noise_note 1, 8, -1, 81
+    noise_note 2, 15, 1, 96
+    noise_note 1, 8, -1, 81
+    noise_note 2, 15, 1, 96
+    noise_note 1, 8, -1, 81
+    noise_note 2, 15, 1, 96
+    noise_note 1, 8, -1, 96
+    noise_note 2, 15, 1, 96
+    noise_note 1, 8, -1, 96
+    noise_note 2, 12, 1, 96
+    noise_note 1, 6, -1, 128
+    noise_note 2, 10, 1, 96
+    noise_note 1, 4, -1, 128
+    noise_note 2, 8, 1, 128
+    noise_note 1, 2, -1, 128
+    noise_note 2, 5, 1, 128
+    noise_note 1, 0, -1, 128
+    noise_note 2, 5, 1, 128
+    noise_note 1, 0, -1, 128
+    noise_note 2, 5, 1, 128
+    noise_note 1, 0, -1, 128
+    noise_note 2, 3, 1, 128
+    noise_note 1, 0, -1, 128
+    noise_note 2, 3, 1, 128
+    noise_note 1, 0, -1, 128
+    noise_note 2, 3, 1, 128
+    noise_note 1, 0, -1, 128
+    noise_note 2, 3, 1, 128
+    noise_note 1, 0, -1, 128
+    noise_note 2, 3, 1, 128
+    noise_note 1, 0, -1, 128
+};
+
+pub(super) const ZOROARK_BASE: MonCryBase = MonCryBase(
+    &ZOROARK_CH5,
+    &[],
+    &[],
+    &ZOROARK_CH8,
 );
 
 const VOLTORB_CH5: &[Instruction] = sound_insns! {
