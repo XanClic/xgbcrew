@@ -43,7 +43,7 @@ fn main() {
 
     let mut psound = PokemonSound::new(sound_state, sss);
 
-    for mon in &[MIMIKYU] {
+    for mon in &[SINISTCHA] {
         println!("{}", mon.3);
         psound.mon(mon);
         println!("  {} s elapsed", psound.total_cycles as f32 / 2097152.0);
