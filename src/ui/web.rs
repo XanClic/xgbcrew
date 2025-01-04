@@ -15,7 +15,7 @@ pub struct WebBufferAudio {
     buffer: AudioBuffer,
 
     vblank_buf: Vec<f32>,
-    vblank_single_channel_buf: Vec<f32>,
+    vblank_single_channel_bufs: Vec<Vec<f32>>,
     cache_size: u32,
 
     time_ofs: f64,
@@ -29,10 +29,10 @@ pub struct WebBufferAudio {
 
 pub struct WebWorkletAudio {
     vblank_buf: Vec<f32>,
-    vblank_single_channel_buf: Vec<f32>,
+    vblank_single_channel_bufs: Vec<Vec<f32>>,
     cache_size: usize,
 
-    buffer: Vec<f32>,
+    buffers: Vec<Vec<f32>>,
     ptrs: Vec<u32>,
 
     channels: usize,
@@ -223,8 +223,8 @@ impl WebUi {
     pub fn set_paused(&mut self, _paused: bool) {
     }
 
-    pub fn get_sound_ringbuf(&self) -> Option<&[f32]> {
-        self.audio.as_ref().map(|a| a.get_sound_ringbuf())
+    pub fn get_sound_ringbuf(&self, channel: usize) -> Option<&[f32]> {
+        self.audio.as_ref().and_then(|a| a.get_sound_ringbuf(channel))
     }
 
     pub fn get_sound_ringbuf_ptrs(&mut self) -> Option<&mut [u32]> {
@@ -237,8 +237,8 @@ impl WebBufferAudio {
         let ctx = AudioContext::new().ok()?;
         let source = ctx.create_buffer_source().ok()?;
         let buf_len = params.freq as u32;
-        // FIXME: Support params.channels
-        let buffer = ctx.create_buffer(1, buf_len, params.freq as f32).ok()?;
+        let channels = params.channels;
+        let buffer = ctx.create_buffer(channels as u32, buf_len, params.freq as f32).ok()?;
 
         source.set_loop(true);
         source.set_buffer(Some(&buffer));
@@ -253,7 +253,7 @@ impl WebBufferAudio {
             buffer,
 
             vblank_buf: Default::default(),
-            vblank_single_channel_buf: Default::default(),
+            vblank_single_channel_bufs: vec![Default::default(); channels],
             cache_size: 44100 / 30, // 1/30th of a second
 
             time_ofs,
@@ -295,21 +295,24 @@ impl WebBufferAudio {
 
     fn submit_vblank_sound_buf(&mut self) {
         let samples = self.vblank_buf.len() as u32 / self.channels;
-        if self.vblank_single_channel_buf.len() < samples as usize {
-            self.vblank_single_channel_buf.resize(samples as usize, 0.0);
-        }
-        for i in 0..samples {
-            self.vblank_single_channel_buf[i as usize] = self.vblank_buf[(i * self.channels) as usize];
+        for (channel, buf) in self.vblank_single_channel_bufs.iter_mut().enumerate() {
+            if buf.len() < samples as usize {
+                buf.resize(samples as usize, 0.0);
+            }
+            for i in 0..samples {
+                buf[i as usize] = self.vblank_buf[(i * self.channels) as usize + channel];
+            }
+
+            if self.last_end + samples <= self.buf_len {
+                self.buffer.copy_to_channel_with_start_in_channel(buf.as_slice(), channel as i32, self.last_end).unwrap();
+            } else {
+                let head = (self.buf_len - self.last_end) as usize;
+                let (head, tail) = buf.split_at(head);
+                self.buffer.copy_to_channel_with_start_in_channel(head, channel as i32, self.last_end).unwrap();
+                self.buffer.copy_to_channel_with_start_in_channel(tail, channel as i32, 0).unwrap();
+            }
         }
 
-        if self.last_end + samples <= self.buf_len {
-            self.buffer.copy_to_channel_with_start_in_channel(self.vblank_single_channel_buf.as_slice(), 0, self.last_end).unwrap();
-        } else {
-            let head = (self.buf_len - self.last_end) as usize;
-            let (head, tail) = self.vblank_single_channel_buf.split_at(head);
-            self.buffer.copy_to_channel_with_start_in_channel(head, 0, self.last_end).unwrap();
-            self.buffer.copy_to_channel_with_start_in_channel(tail, 0, 0).unwrap();
-        }
         self.last_end = (self.last_end + samples) % self.buf_len;
     }
 }
@@ -318,10 +321,10 @@ impl WebWorkletAudio {
     fn new(params: AudioOutputParams) -> Option<Self> {
         Some(WebWorkletAudio {
             vblank_buf: Default::default(),
-            vblank_single_channel_buf: Default::default(),
+            vblank_single_channel_bufs: vec![Default::default(); params.channels],
             cache_size: 44100 / 30, // 1/30th of a second
 
-            buffer: vec![0.0; 44100],
+            buffers: vec![vec![0.0; 44100]; params.channels],
             ptrs: vec![0; 2],
 
             // FIXME: DO NOT IGNORE params.freq
@@ -329,8 +332,8 @@ impl WebWorkletAudio {
         })
     }
 
-    fn get_sound_ringbuf(&self) -> &[f32] {
-        self.buffer.as_slice()
+    fn get_sound_ringbuf(&self, channel: usize) -> Option<&[f32]> {
+        self.buffers.get(channel).map(|buf| buf.as_slice())
     }
 
     fn get_sound_ringbuf_ptrs(&mut self) -> &mut [u32] {
@@ -338,7 +341,7 @@ impl WebWorkletAudio {
     }
 
     fn get_vblank_sound_buf(&mut self) -> Option<&mut Vec<f32>> {
-        let cached = (self.ptrs[0] as usize + self.buffer.len() - self.ptrs[1] as usize) % self.buffer.len();
+        let cached = (self.ptrs[0] as usize + self.buffers[0].len() - self.ptrs[1] as usize) % self.buffers[0].len();
 
         if cached >= self.cache_size {
             return None;
@@ -351,24 +354,29 @@ impl WebWorkletAudio {
 
     fn submit_vblank_sound_buf(&mut self) {
         let samples = self.vblank_buf.len() / self.channels;
-        if self.vblank_single_channel_buf.len() < samples {
-            self.vblank_single_channel_buf.resize(samples, 0.0);
-        }
-        for i in 0..samples {
-            self.vblank_single_channel_buf[i] = self.vblank_buf[i * self.channels];
+        for (channel, buf) in self.vblank_single_channel_bufs.iter_mut().enumerate() {
+            if buf.len() < samples {
+                buf.resize(samples, 0.0);
+            }
+            for i in 0..samples {
+                buf[i] = self.vblank_buf[i * self.channels + channel];
+            }
+
+            let obuf = &mut self.buffers[channel];
+
+            let ipos = self.ptrs[0] as usize;
+            if ipos + samples <= obuf.len() {
+                obuf[ipos..(ipos + samples)].copy_from_slice(&buf[..samples]);
+            } else {
+                let head = obuf.len() - ipos;
+                let (head, tail) = buf.split_at(head);
+                let tail_len = samples - head.len();
+
+                obuf[ipos..].copy_from_slice(head);
+                obuf[..tail_len].copy_from_slice(&tail[..tail_len])
+            }
         }
 
-        let ipos = self.ptrs[0] as usize;
-        if ipos + samples <= self.buffer.len() {
-            self.buffer[ipos..(ipos + samples)].copy_from_slice(&self.vblank_single_channel_buf[..samples]);
-        } else {
-            let head = self.buffer.len() - ipos;
-            let (head, tail) = self.vblank_single_channel_buf.split_at(head);
-            let tail_len = samples - head.len();
-
-            self.buffer[ipos..].copy_from_slice(head);
-            self.buffer[..tail_len].copy_from_slice(&tail[..tail_len])
-        }
-        self.ptrs[0] = ((ipos + samples) % self.buffer.len()) as u32;
+        self.ptrs[0] = ((self.ptrs[0] as usize + samples) % self.buffers[0].len()) as u32;
     }
 }

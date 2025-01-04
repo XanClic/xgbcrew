@@ -21,12 +21,13 @@ class WASMStreamer extends AudioWorkletProcessor {
         }
 
         let copied = 0;
-        let buflen = this.buffer.buf.length;
+        let buflen = this.buffer.bufs[0].length;
         let ipos = this.buffer.ptrs[0];
         let opos = this.buffer.ptrs[1];
 
         let buffered = (ipos - opos + buflen) % buflen;
 
+        let channel_index = 0;
         outputs[0].forEach(channel => {
             let to_copy = Math.min(buffered, channel.length);
             copied = Math.max(copied, to_copy);
@@ -36,15 +37,19 @@ class WASMStreamer extends AudioWorkletProcessor {
 
             if (ei < si) {
                 memcpy(channel, 0,
-                       this.buffer.buf, si,
+                       this.buffer.bufs[channel_index], si,
                        buflen - si);
                 memcpy(channel, buflen - si,
-                       this.buffer.buf, 0,
+                       this.buffer.bufs[channel_index], 0,
                        ei);
             } else {
                 memcpy(channel, 0,
-                       this.buffer.buf, si,
+                       this.buffer.bufs[channel_index], si,
                        ei - si);
+            }
+
+            if (channel_index == 0) {
+                channel_index = 1;
             }
         })
 

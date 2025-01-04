@@ -428,8 +428,8 @@ impl UI {
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub fn get_sound_ringbuf(&self) -> Option<&[f32]> {
-        self.frontend.get_sound_ringbuf()
+    pub fn get_sound_ringbuf(&self, channel: usize) -> Option<&[f32]> {
+        self.frontend.get_sound_ringbuf(channel)
     }
 
     #[cfg(target_arch = "wasm32")]
