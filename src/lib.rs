@@ -56,12 +56,12 @@ impl XGBCSystem {
         self.sys.main_loop(true);
     }
 
-    pub fn get_sound_ringbuf(&self) -> *const f32 {
-        self.sys.ui.get_sound_ringbuf().map(|s| &s[0] as *const f32).unwrap_or_else(std::ptr::null)
+    pub fn get_sound_ringbuf(&self, channel: usize) -> *const f32 {
+        self.sys.ui.get_sound_ringbuf(channel).map(|s| &s[0] as *const f32).unwrap_or_else(std::ptr::null)
     }
 
     pub fn get_sound_ringbuf_length(&self) -> usize {
-        self.sys.ui.get_sound_ringbuf().map(|s| s.len()).unwrap_or(0)
+        self.sys.ui.get_sound_ringbuf(0).map(|s| s.len()).unwrap_or(0)
     }
 
     pub fn get_sound_ringbuf_ptrs(&mut self) -> *mut u32 {
