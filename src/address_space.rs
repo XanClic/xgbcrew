@@ -23,7 +23,7 @@ pub struct AddressSpace {
     pub extram_rw: bool,
     pub wram_bank: usize,
 
-    pub full_vram: &'static mut [u8; 0x4000],
+    pub full_vram: Option<&'static mut [u8; 0x4000]>,
 
     rom0_mapped: Option<()>,
     romn_mapped: Option<usize>,
@@ -83,10 +83,7 @@ impl AddressSpace {
             extram_rw: false,
             wram_bank: 1,
 
-            full_vram: unsafe {
-                #[allow(deref_nullptr)]
-                &mut *std::ptr::null_mut()
-            },
+            full_vram: None,
 
             rom0_mapped: None,
             romn_mapped: None,
@@ -295,9 +292,9 @@ impl AddressSpace {
                                       libc::PROT_READ | libc::PROT_WRITE,
                                       libc::MAP_SHARED, true)
                              as *mut u8;
-            self.full_vram = unsafe {
+            self.full_vram = Some(unsafe {
                 &mut *(vram_ptr as *mut [u8; 0x4000])
-            };
+            });
         }
     }
 
@@ -473,7 +470,7 @@ impl SaveState for AddressSpace {
             Self::export_shm(self.extram_file.as_raw_fd(), extram_size, stream);
         }
 
-        stream.write_all(self.full_vram).unwrap();
+        stream.write_all(*self.full_vram.as_ref().unwrap()).unwrap();
 
         SaveState::export(self.romn_mapped.as_ref().unwrap(), stream, version);
         SaveState::export(self.vram_mapped.as_ref().unwrap(), stream, version);
@@ -493,7 +490,9 @@ impl SaveState for AddressSpace {
             Self::import_shm(self.extram_file.as_raw_fd(), extram_size, stream);
         }
 
-        stream.read_exact(self.full_vram).unwrap();
+        let full_vram = self.full_vram.take().unwrap();
+        stream.read_exact(full_vram).unwrap();
+        self.full_vram = Some(full_vram);
 
         SaveState::import(&mut self.rom_bank, stream, version);
         SaveState::import(&mut self.vram_bank, stream, version);
