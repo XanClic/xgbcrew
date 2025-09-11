@@ -19,7 +19,7 @@ serde_json = "1.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 hidapi = "2.6"
-sdl2 = "0.37"
+sdl2 = "0.38"
 sdl2_ttf = { git = "https://github.com/XanClic/rust-sdl2_ttf" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
