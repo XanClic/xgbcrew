@@ -31,6 +31,13 @@ pub struct DisplayState {
 
     line_timer: u32,
 
+    /// Set to -WY on vblank, then counted up by every window line.
+    ///
+    /// Apparently, the GB fetch WY only in vblank and ignores later updates (and if the window is
+    /// disabled during scanning, and then re-enabled, it will continue where it left off, not drop
+    /// the intermediate bit).
+    wnd_line: isize,
+
     bcps: u8,
     ocps: u8,
     bg_palette: [u32; 32],
@@ -97,6 +104,7 @@ impl DisplayState {
             obj_prio: false,
 
             line_timer: 0,
+            wnd_line: 0,
 
             bcps: 0,
             ocps: 0,
@@ -374,20 +382,16 @@ fn draw_bg_line(sys_state: &mut SystemState,
 fn draw_wnd_line(sys_state: &mut SystemState,
                  screen_line: u8, bg_prio: &mut [u8; 160])
 {
-    let wx = sys_state.io_get_reg(IOReg::WX) - 7;
-    let wy = sys_state.io_get_reg(IOReg::WY);
+    let wx = sys_state.io_get_reg(IOReg::WX).wrapping_sub(7);
 
     let d = &mut sys_state.display;
     let sofs = screen_line as usize * 160;
     let eofs = sofs + 160;
     let pixels = &mut d.lcd_pixels[sofs..eofs];
 
-    if screen_line < wy {
-        return;
-    }
-
-    let by = (screen_line - wy) & 0xf8;
-    let ry = (screen_line - wy) & 0x07;
+    let wline = d.wnd_line as u8;
+    let by = wline & 0xf8;
+    let ry = wline & 0x07;
 
     let full_vram = sys_state.addr_space.full_vram.as_ref().unwrap();
     let tile_data_signed = d.tile_data == 0x1000;
@@ -551,7 +555,6 @@ fn draw_obj_line(sys_state: &mut SystemState, screen_line: u8,
 fn draw_line(sys_state: &mut SystemState, line: u8) {
     let sy = sys_state.io_get_reg(IOReg::SCY);
     let wx = sys_state.io_get_reg(IOReg::WX);
-    let wy = sys_state.io_get_reg(IOReg::WY);
 
     let sofs = line as usize * 160;
     let eofs = sofs + 160;
@@ -566,18 +569,22 @@ fn draw_line(sys_state: &mut SystemState, line: u8) {
     }
 
     let abs_line = line.wrapping_add(sy);
-    let window_active = sys_state.display.wnd_enabled && (7..=166).contains(&wx) && wy <= line;
+    let window_active = sys_state.display.wnd_enabled && (7..=166).contains(&wx);
+    let window_here = window_active && sys_state.display.wnd_line >= 0;
 
     if !sys_state.display.bg_enabled {
         for p in pixels {
             *p = 0xff000000;
         }
     } else {
-        draw_bg_line(sys_state, abs_line, line, window_active, &mut bg_prio);
+        draw_bg_line(sys_state, abs_line, line, window_here, &mut bg_prio);
     }
 
     if window_active {
-        draw_wnd_line(sys_state, line, &mut bg_prio);
+        if window_here {
+            draw_wnd_line(sys_state, line, &mut bg_prio);
+        }
+        sys_state.display.wnd_line += 1;
     }
 
     if sys_state.display.obj_enabled {
@@ -591,6 +598,10 @@ fn stat_mode_transition(sys_state: &mut SystemState, ly: u8, from: Submode, to: 
     let addr_space = &mut sys_state.addr_space;
 
     assert!((ly > 143) == (to == Submode::VBlank));
+
+    if from == Submode::VBlank {
+        d.wnd_line = -(addr_space.io_get_reg(IOReg::WY) as isize);
+    }
 
     let mut stat = addr_space.io_get_reg(IOReg::STAT);
     let hdma5 = addr_space.io_get_reg(IOReg::HDMA5);
