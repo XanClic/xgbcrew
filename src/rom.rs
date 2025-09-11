@@ -1,5 +1,6 @@
 #[cfg(not(target_arch = "wasm32"))]
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::cmp;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::SystemTime;
 #[cfg(target_arch = "wasm32")]
@@ -48,6 +49,7 @@ struct RamRTCData {
     halted: bool,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum MbcType {
     NoMBC,
     MBC1,
@@ -55,6 +57,101 @@ enum MbcType {
     MBC3,
     MBC5,
     MMM01,
+    MBC30,
+}
+
+impl RomDataArea {
+    fn cartridge_info(&self) -> (
+        MbcType, // MBC
+        bool,    // extRAM?
+        bool,    // battery?
+        bool,    // rtc?
+        bool,    // rumble?
+        usize,   // ROM banks
+        usize,   // extRAM banks
+    ) {
+        let (mut mbc, extram, battery, rtc, rumble) = match self.cartridge {
+            0x00 => (MbcType::NoMBC, false, false, false, false),
+            0x01 => (MbcType::MBC1,  false, false, false, false),
+            0x02 => (MbcType::MBC1,   true, false, false, false),
+            0x03 => (MbcType::MBC1,   true,  true, false, false),
+
+            0x05 => (MbcType::MBC2,  false, false, false, false),
+            0x06 => (MbcType::MBC2,  false,  true, false, false),
+
+            0x08 => (MbcType::NoMBC,  true, false, false, false),
+            0x09 => (MbcType::NoMBC,  true,  true, false, false),
+
+            0x0b => (MbcType::MMM01, false, false, false, false),
+            0x0c => (MbcType::MMM01,  true, false, false, false),
+            0x0d => (MbcType::MMM01,  true,  true, false, false),
+
+            0x0f => (MbcType::MBC3,  false,  true,  true, false),
+            0x10 => (MbcType::MBC3,   true,  true,  true, false),
+            0x11 => (MbcType::MBC3,  false, false, false, false),
+            0x12 => (MbcType::MBC3,   true, false, false, false),
+            0x13 => (MbcType::MBC3,   true,  true, false, false),
+
+            0x19 => (MbcType::MBC5,  false, false, false, false),
+            0x1a => (MbcType::MBC5,   true, false, false, false),
+            0x1b => (MbcType::MBC5,   true,  true, false, false),
+            0x1c => (MbcType::MBC5,  false, false, false,  true),
+            0x1d => (MbcType::MBC5,  false,  true, false,  true),
+            0x1e => (MbcType::MBC5,  false,  true,  true,  true),
+
+            _ => panic!("Unknown cartridge type {:#x}", self.cartridge),
+        };
+
+        let rom_size = match self.rom_size {
+            0..=9 => 2usize << self.rom_size,
+            0x52  => 72usize,
+            0x53  => 80usize,
+            0x54  => 96usize,
+
+            _ => panic!("Invalid ROM size"),
+        };
+
+        let extram_size = match self.extram_size {
+            0 => 0usize,
+            1 | 2 => 1usize,
+            3 => 4usize,
+            4 => 16usize,
+
+            _ => panic!("Invalid external RAM size"),
+        };
+
+        if mbc == MbcType::MBC3 && (rom_size > mbc.max_rom_size() || extram_size > mbc.max_extram_size()) {
+            mbc = MbcType::MBC30;
+        }
+
+        let rom_size = cmp::min(rom_size, mbc.max_rom_size());
+        let extram_size = cmp::min(extram_size, mbc.max_extram_size());
+
+        (mbc, extram, battery, rtc, rumble, rom_size, extram_size)
+    }
+}
+
+impl MbcType {
+    fn max_rom_size(&self) -> usize {
+        match self {
+            MbcType::NoMBC | MbcType::MMM01 => 2,
+            MbcType::MBC1 => 0x80,
+            MbcType::MBC2 => 0x10,
+            MbcType::MBC3 => 0x80,
+            MbcType::MBC30 => 0x100,
+            MbcType::MBC5 => 0x200,
+        }
+    }
+
+    fn max_extram_size(&self) -> usize {
+        match self {
+            MbcType::NoMBC | MbcType::MBC2 | MbcType::MMM01 => 2,
+            MbcType::MBC1 => 0x04,
+            MbcType::MBC3 => 0x04,
+            MbcType::MBC30 => 0x08,
+            MbcType::MBC5 => 0x10,
+        }
+    }
 }
 
 #[derive(SaveState)]
@@ -136,7 +233,7 @@ impl Cartridge {
                 }
             },
 
-            MbcType::MBC3 => {
+            MbcType::MBC3 | MbcType::MBC30 => {
                 addr_space.rom_bank = 1;
                 if c.extram {
                     addr_space.extram_bank = Some(0);
@@ -255,7 +352,7 @@ impl Cartridge {
         ((secs % (86400 * 512)) as u64, dc)
     }
 
-    fn mbc3_write(addr_space: &mut AddressSpace, addr: u16, mut val: u8) {
+    fn mbc3_write(addr_space: &mut AddressSpace, addr: u16, mut val: u8, mbc30: bool) {
         let c = &mut addr_space.cartridge;
 
         match addr & 0xe000 {
@@ -270,7 +367,8 @@ impl Cartridge {
             },
 
             0x2000 => {
-                let mut bank = val as usize & 0x7f;
+                let mask = if mbc30 { 0xff } else { 0x7f };
+                let mut bank = val as usize & mask;
                 if bank == 0 {
                     bank = 1;
                 }
@@ -279,8 +377,9 @@ impl Cartridge {
             },
 
             0x4000 => {
+                let extram_mask = if mbc30 { 0x07 } else { 0x03 };
                 if (0x08..=0x0c).contains(&val) && c.rtc.is_none() {
-                    val &= 0x03;
+                    val &= extram_mask;
                 }
 
                 if (0x08..=0x0c).contains(&val) {
@@ -312,7 +411,7 @@ impl Cartridge {
                     addr_space.extram_rw = false;
                     addr_space.remap_extram();
                 } else if c.extram {
-                    let bank = val as usize & 0x03;
+                    let bank = (val & extram_mask) as usize;
                     addr_space.extram_bank = Some(bank % c.extram_size);
                     addr_space.extram_rw = c.mbc3_hidden_ram_rw;
                     addr_space.remap_extram();
@@ -487,7 +586,8 @@ impl Cartridge {
         match addr_space.cartridge.mbc {
             MbcType::MBC1 => Cartridge::mbc1_write(addr_space, addr, val),
             MbcType::MBC2 => Cartridge::mbc2_write(addr_space, addr, val),
-            MbcType::MBC3 => Cartridge::mbc3_write(addr_space, addr, val),
+            MbcType::MBC3 => Cartridge::mbc3_write(addr_space, addr, val, false),
+            MbcType::MBC30 => Cartridge::mbc3_write(addr_space, addr, val, true),
             MbcType::MBC5 => Cartridge::mbc5_write(addr_space, addr, val),
 
             _ => println!("ROM write {:02x} => {:04x} not handled", val, addr),
@@ -509,55 +609,7 @@ pub fn load_rom(addr_space: &mut AddressSpace) -> SystemParams {
     let rom_data_area: RomDataArea =
         bincode::deserialize(&raw_rda).unwrap();
 
-    let (mbc, extram, batt, rtc, rumble) = match rom_data_area.cartridge {
-        0x00 => (MbcType::NoMBC, false, false, false, false),
-        0x01 => (MbcType::MBC1,  false, false, false, false),
-        0x02 => (MbcType::MBC1,   true, false, false, false),
-        0x03 => (MbcType::MBC1,   true,  true, false, false),
-
-        0x05 => (MbcType::MBC2,  false, false, false, false),
-        0x06 => (MbcType::MBC2,  false,  true, false, false),
-
-        0x08 => (MbcType::NoMBC,  true, false, false, false),
-        0x09 => (MbcType::NoMBC,  true,  true, false, false),
-
-        0x0b => (MbcType::MMM01, false, false, false, false),
-        0x0c => (MbcType::MMM01,  true, false, false, false),
-        0x0d => (MbcType::MMM01,  true,  true, false, false),
-
-        0x0f => (MbcType::MBC3,  false,  true,  true, false),
-        0x10 => (MbcType::MBC3,   true,  true,  true, false),
-        0x11 => (MbcType::MBC3,  false, false, false, false),
-        0x12 => (MbcType::MBC3,   true, false, false, false),
-        0x13 => (MbcType::MBC3,   true,  true, false, false),
-
-        0x19 => (MbcType::MBC5,  false, false, false, false),
-        0x1a => (MbcType::MBC5,   true, false, false, false),
-        0x1b => (MbcType::MBC5,   true,  true, false, false),
-        0x1c => (MbcType::MBC5,  false, false, false,  true),
-        0x1d => (MbcType::MBC5,  false,  true, false,  true),
-        0x1e => (MbcType::MBC5,  false,  true,  true,  true),
-
-        _ => panic!("Unknown cartridge type {:#x}", rom_data_area.cartridge),
-    };
-
-    let rom_size = match rom_data_area.rom_size {
-        0..=9 => 2usize << rom_data_area.rom_size,
-        0x52  => 72usize,
-        0x53  => 80usize,
-        0x54  => 96usize,
-
-        _ => panic!("Invalid ROM size"),
-    };
-
-    let extram_size = match rom_data_area.extram_size {
-        0 => 0usize,
-        1 | 2 => 1usize,
-        3 => 4usize,
-        4 => 16usize,
-
-        _ => panic!("Invalid external RAM size"),
-    };
+    let (mbc, extram, batt, rtc, rumble, rom_size, extram_size) = rom_data_area.cartridge_info();
 
     let gbc_mode = rom_data_area.cgb_mode & 0x80 != 0;
     let sgb_mode = rom_data_area.sgb_mode == 0x03;
@@ -583,6 +635,7 @@ pub fn load_rom(addr_space: &mut AddressSpace) -> SystemParams {
                  MbcType::MBC1  => "+MBC1",
                  MbcType::MBC2  => "+MBC2",
                  MbcType::MBC3  => "+MBC3",
+                 MbcType::MBC30 => "+MBC30",
                  MbcType::MBC5  => "+MBC5",
                  MbcType::MMM01 => "+MMM01",
              },
