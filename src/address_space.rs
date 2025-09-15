@@ -11,6 +11,9 @@ pub use helpers::U8Split;
 
 pub const AS_BASE: usize = 0x100000000usize;
 
+/// Not actually used, immediately replaced by a raw memory reference into `AS_BASE`.
+static mut FULL_VRAM_DUMMY: [u8; 0x4000] = [0u8; 0x4000];
+
 pub struct AddressSpace {
     pub rom_file: fs::File,
     pub extram_file: fs::File,
@@ -23,7 +26,7 @@ pub struct AddressSpace {
     pub extram_rw: bool,
     pub wram_bank: usize,
 
-    pub full_vram: Option<&'static mut [u8; 0x4000]>,
+    pub full_vram: &'static mut [u8; 0x4000],
 
     rom0_mapped: Option<()>,
     romn_mapped: Option<usize>,
@@ -83,7 +86,12 @@ impl AddressSpace {
             extram_rw: false,
             wram_bank: 1,
 
-            full_vram: None,
+            // Safe: Not actually used.
+            // (The fix is to properly rewrite this whole thing in actual Rust.)
+            full_vram: unsafe {
+                #[allow(static_mut_refs)]
+                &mut FULL_VRAM_DUMMY
+            },
 
             rom0_mapped: None,
             romn_mapped: None,
@@ -292,9 +300,9 @@ impl AddressSpace {
                                       libc::PROT_READ | libc::PROT_WRITE,
                                       libc::MAP_SHARED, true)
                              as *mut u8;
-            self.full_vram = Some(unsafe {
+            self.full_vram = unsafe {
                 &mut *(vram_ptr as *mut [u8; 0x4000])
-            });
+            };
         }
     }
 
@@ -470,7 +478,7 @@ impl SaveState for AddressSpace {
             Self::export_shm(self.extram_file.as_raw_fd(), extram_size, stream);
         }
 
-        stream.write_all(*self.full_vram.as_ref().unwrap()).unwrap();
+        stream.write_all(self.full_vram).unwrap();
 
         SaveState::export(self.romn_mapped.as_ref().unwrap(), stream, version);
         SaveState::export(self.vram_mapped.as_ref().unwrap(), stream, version);
@@ -490,9 +498,7 @@ impl SaveState for AddressSpace {
             Self::import_shm(self.extram_file.as_raw_fd(), extram_size, stream);
         }
 
-        let full_vram = self.full_vram.take().unwrap();
-        stream.read_exact(full_vram).unwrap();
-        self.full_vram = Some(full_vram);
+        stream.read_exact(self.full_vram).unwrap();
 
         SaveState::import(&mut self.rom_bank, stream, version);
         SaveState::import(&mut self.vram_bank, stream, version);

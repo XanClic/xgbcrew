@@ -324,7 +324,7 @@ fn draw_bg_line(sys_state: &mut SystemState,
     let eofs = sofs + 160;
     let pixels = &mut d.lcd_pixels[sofs..eofs];
 
-    let full_vram = sys_state.addr_space.full_vram.as_ref().unwrap();
+    let full_vram = &sys_state.addr_space.full_vram;
     let tile_data_signed = d.tile_data == 0x1000;
 
     let mut bx = sx & 0xf8;
@@ -393,7 +393,7 @@ fn draw_wnd_line(sys_state: &mut SystemState,
     let by = wline & 0xf8;
     let ry = wline & 0x07;
 
-    let full_vram = sys_state.addr_space.full_vram.as_ref().unwrap();
+    let full_vram = &sys_state.addr_space.full_vram;
     let tile_data_signed = d.tile_data == 0x1000;
 
     let mut tile = (by as usize) << 2;
@@ -487,7 +487,7 @@ fn draw_obj_line(sys_state: &mut SystemState, screen_line: u8,
     let pixels = &mut d.lcd_pixels[sofs..eofs];
     #[cfg(not(target_arch = "wasm32"))]
     let oam = sys_state.addr_space.raw_ptr(0xfe00) as *const u32;
-    let full_vram = sys_state.addr_space.full_vram.as_ref().unwrap();
+    let full_vram = &sys_state.addr_space.full_vram;
 
     let mut objs = Vec::<u32>::with_capacity(40);
 
