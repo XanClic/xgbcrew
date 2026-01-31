@@ -108,7 +108,7 @@ impl RomDataArea {
             0x53  => 80usize,
             0x54  => 96usize,
 
-            _ => panic!("Invalid ROM size"),
+            _ => panic!("Invalid ROM size: {}", self.rom_size),
         };
 
         let extram_size = match self.extram_size {
@@ -116,8 +116,9 @@ impl RomDataArea {
             1 | 2 => 1usize,
             3 => 4usize,
             4 => 16usize,
+            5 => 8usize,
 
-            _ => panic!("Invalid external RAM size"),
+            _ => panic!("Invalid external RAM size: {}", self.extram_size),
         };
 
         if mbc == MbcType::MBC3 && (rom_size > mbc.max_rom_size() || extram_size > mbc.max_extram_size()) {
