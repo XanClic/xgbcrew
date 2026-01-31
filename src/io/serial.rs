@@ -33,11 +33,15 @@ struct SerialSHM {
     remote_if: &'static AtomicU8,
 }
 
+#[derive(Default, SaveState)]
 pub struct SerialState {
+    #[savestate(skip)]
     con: Option<std::net::TcpStream>,
+    #[savestate(skip)]
     server: Option<std::net::TcpListener>,
 
     /* FIXME: Atomics */
+    #[savestate(skip)]
     shm: Option<SerialSHM>,
 
     cycles_rem: Option<u32>,
@@ -45,10 +49,10 @@ pub struct SerialState {
 
 
 impl SerialState {
-    pub fn new(ui: &mut UI, param: &SerialConnParam) -> Option<Self> {
+    pub fn new(ui: &mut UI, param: &SerialConnParam) -> Self {
         let (addr, create_server, create_client) =
             match param {
-                SerialConnParam::Disabled => return None,
+                SerialConnParam::Disabled => return SerialState::default(),
 
                 #[cfg(target_os = "linux")]
                 SerialConnParam::LocalSHM(pid) => {
@@ -63,14 +67,14 @@ impl SerialState {
                     let remote_sc = unsafe { AtomicU8::from_ptr((shm as *mut u8).offset(0xf02)) };
                     let remote_if = unsafe { AtomicU8::from_ptr((shm as *mut u8).offset(0xf0f)) };
 
-                    return Some(SerialState {
+                    return SerialState {
                         con: None,
                         server: None,
 
                         shm: Some(SerialSHM { remote_sb, remote_sc, remote_if }),
 
                         cycles_rem: None,
-                    });
+                    };
                 },
 
                 SerialConnParam::LocalAuto =>
@@ -113,17 +117,17 @@ impl SerialState {
                     ui.osd_message(String::from("Failed to connect to link server")),
             }
 
-            return None;
+            return SerialState::default();
         }
 
-        Some(SerialState {
+        SerialState {
             con,
             server,
 
             shm: None,
 
             cycles_rem: None,
-        })
+        }
     }
 
     pub fn vblank_check(&mut self) {
@@ -210,6 +214,9 @@ impl SerialState {
                 addr_space.io_set_reg(IOReg::IF,
                                       iflag | (Irq::Serial as u8));
             }
+        } else {
+            let sc = addr_space.io_get_reg(IOReg::SC);
+            addr_space.io_set_reg(IOReg::SC, sc & !0x80);
         }
     }
 
@@ -245,41 +252,36 @@ pub fn serial_write(sys_state: &mut SystemState, addr: u16, mut val: u8)
                 val |= 0x02;
             }
 
-            if let Some(serial) = sys_state.serial.as_mut() {
-                serial.cycles_rem = None;
-            }
-
+            sys_state.serial.cycles_rem = None;
             sys_state.io_set_reg(IOReg::SC, val & 0x83);
 
             if val & 0x80 != 0 {
                 let sb = sys_state.io_get_reg(IOReg::SB);
 
-                if let Some(serial) = sys_state.serial.as_mut() {
-                    if let Some(con) = serial.con.as_mut() {
-                        let mut recv_data = [0u8];
-                        /* Drain remote */
-                        while con.read(&mut recv_data).unwrap_or(0) == 1 {
-                        }
-                    }
-
-                    if val & 0x01 != 0 {
-                        if let Some(con) = serial.con.as_mut() {
-                            let send_data = [sb];
-                            if con.write_all(&send_data).is_err() {
-                                serial.conn_down();
-                            }
-                        }
-
-                        /* Takes 16 cycles of the shift clock
-                         * (8 before start, then 8 to transfer) */
-                        serial.cycles_rem = Some(
-                            if sys_state.cgb && (val & 0x02 != 0) {
-                                16 * 16
-                            } else {
-                                16 * 512
-                            } - 1);
+                if let Some(con) = sys_state.serial.con.as_mut() {
+                    let mut recv_data = [0u8];
+                    /* Drain remote */
+                    while con.read(&mut recv_data).unwrap_or(0) == 1 {
                     }
                 }
+
+                if val & 0x01 != 0 {
+                    if let Some(con) = sys_state.serial.con.as_mut() {
+                        let send_data = [sb];
+                        if con.write_all(&send_data).is_err() {
+                            sys_state.serial.conn_down();
+                        }
+                    }
+                }
+
+                /* Takes 16 cycles of the shift clock
+                 * (8 before start, then 8 to transfer) */
+                sys_state.serial.cycles_rem = Some(
+                    if sys_state.cgb && (val & 0x02 != 0) {
+                        16 * 16
+                    } else {
+                        16 * 512
+                    } - 1);
             }
         }
 

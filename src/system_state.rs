@@ -10,7 +10,7 @@ use crate::sgb::SGBState;
 use crate::ui::{UI, UIAction, UIEvent};
 
 
-const SAVE_STATE_VERSION: u64 = 8;
+const SAVE_STATE_VERSION: u64 = 9;
 
 #[allow(clippy::upper_case_acronyms)]
 #[allow(dead_code)]
@@ -139,8 +139,8 @@ pub struct SystemState {
     pub keypad: KeypadState,
     pub sound: SoundState,
     pub timer: TimerState,
-    #[savestate(skip)]
-    pub serial: Option<SerialState>,
+    #[savestate(skip_if("version < 8"))]
+    pub serial: SerialState,
 
     #[savestate(skip_if("version < 1"), ref)]
     pub sgb_state: Box<SGBState>,
@@ -285,9 +285,7 @@ impl System {
         loop {
             self.exec();
 
-            if let Some(serial) = self.sys_state.serial.as_mut() {
-                serial.check_remote(&mut self.sys_state.addr_space);
-            }
+            self.sys_state.serial.check_remote(&mut self.sys_state.addr_space);
 
             if self.sys_state.vblanked {
                 self.sys_state.vblanked = false;
@@ -303,9 +301,7 @@ impl System {
                 self.ui.refresh_lcd(&self.sys_state);
                 self.handle_events();
 
-                if let Some(serial) = self.sys_state.serial.as_mut() {
-                    serial.vblank_check();
-                }
+                self.sys_state.serial.vblank_check();
 
                 if self.extram_dirtying && !self.sys_state.addr_space.extram_dirty {
                     self.sys_state.addr_space.flush_extram();
@@ -369,10 +365,7 @@ impl SystemState {
         #[cfg(not(target_arch = "wasm32"))]
         self.sound.add_cycles(&mut self.addr_space, dcycles, self.realtime);
         io::timer::add_cycles(self, count);
-
-        if let Some(serial) = self.serial.as_mut() {
-            serial.add_cycles(&mut self.addr_space, dcycles);
-        }
+        self.serial.add_cycles(&mut self.addr_space, dcycles);
     }
 
     fn toggle_sound_postprocess(&mut self) {
