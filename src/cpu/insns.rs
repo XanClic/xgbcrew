@@ -1004,13 +1004,13 @@ fn daa(cpu: &mut Cpu, _sys_state: &mut SystemState) {
             a += 0x6;
         }
         if a > 0x99 || flags![cpu.cf] {
-            a += 0x60;
+            a = (a + 0x60) | 0x100; // force CF set
         }
 
         flags! { cpu;
             cf: (a & 0x100) != 0,
             hf: false,
-            zf: a == 0
+            zf: (a as u8) == 0
         };
     } else {
         if flags![cpu.hf] {
@@ -1022,7 +1022,7 @@ fn daa(cpu: &mut Cpu, _sys_state: &mut SystemState) {
 
         flags! { cpu;
             hf: false,
-            zf: a == 0
+            zf: (a as u8) == 0
         };
     }
 
